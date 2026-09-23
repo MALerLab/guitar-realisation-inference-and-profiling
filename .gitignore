@@ -1,0 +1,18 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+
+# Secrets / local env
+.env
+
+# Data: symlinks to server-local storage
+/data/
+
+# One-off / temporary scripts (promote to src/ once reused)
+/scripts/
+
+# Manifests: parquet tracked, CSV generated on demand
+*.csv
