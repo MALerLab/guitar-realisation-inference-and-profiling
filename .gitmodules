@@ -1,0 +1,7 @@
+[submodule "externals/parsers/PyGuitarPro"]
+	path = externals/parsers/PyGuitarPro
+	url = https://github.com/Perlence/PyGuitarPro.git
+[submodule "externals/parsers/alphaTab"]
+	path = externals/parsers/alphaTab
+	url = https://github.com/CoderLine/alphaTab.git
+	shallow = true

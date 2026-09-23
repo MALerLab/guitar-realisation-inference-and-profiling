@@ -31,6 +31,9 @@
 - **Derived datasets** = anything holding musical content → `~/storage/...`, untracked.
   The repo is public: nothing from DadaGP / mySongBook may be committed.
 - `data/` = symlinks to `~/storage/...`, untracked.
+- `externals/<category>/<repo>` = reused repos as git submodules, pinned to release tags,
+  read/reference only, unmodified (e.g. `externals/parsers/PyGuitarPro`). Large repos are
+  shallow (`shallow = true` in `.gitmodules`). Clone with `--recurse-submodules`.
 - `experiments/`: `exp<NNN>_<YYMMDD>_<rest>`.
 
 ## Vocabulary (one word per concept, in code and docs)
