@@ -1,4 +1,4 @@
-# CLAUDE.md — guitar_technique_recovery
+# CLAUDE.md — guitar-realisation-inference-and-profiling (GRIP)
 <!-- Claude Code–specific only. Project facts → PROJECT.md (shared with Codex).
      Cross-project behaviour → ~/.claude/CLAUDE.md. -->
 

@@ -1,4 +1,4 @@
-# PROJECT.md — guitar_technique_recovery
+# PROJECT.md — guitar-realisation-inference-and-profiling (GRIP)
 <!-- Stable project facts for any coding agent. Claude Code reads this via CLAUDE.md,
      Codex via AGENTS.md. Agent-specific behaviour lives in those files, not here. -->
 
@@ -12,12 +12,19 @@
 - **Bloat:** long detail → `docs/*.md`, linked from here.
 
 ## Notion
-- Hub: **guitar_technique_recovery** — `3e3cb37787438058920dfb43c0fed996`
+- Hub: **guitar-realisation-inference-and-profiling** — `3e3cb37787438058920dfb43c0fed996`
 - **Project Definition** — `3e2cb3778743805695c9f06c05097979`
 - Read the hub before any planning or status work.
 
 ## Environment
 - `uv` project, Python 3.11. Never `pip install`.
+
+## Git remotes
+- One remote, `origin`: fetch from one URL, push to two. Both repos are **public**.
+  - fetch: `git@github.com:jae-gye/guitar-realisation-inference-and-profiling.git`
+  - push: the same URL + `git@github.com:MALerLab/guitar-realisation-inference-and-profiling.git`
+- One `git push` updates both; there is no separate MALerLab remote to fetch from.
+- Check: `git remote -v` → 1 fetch line, 2 push lines.
 
 ## Layout rules
 - `src/` subpackages: `data/` · `realisation/` · `technique/` · `evaluation/`.
