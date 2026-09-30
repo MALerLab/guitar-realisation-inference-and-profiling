@@ -120,7 +120,9 @@ def read_reference(gp_path: Path) -> Reference:
                 timing_comparable = beat_position not in grace_affected
                 for note in beat.notes:
                     if note.effect.grace is not None:
-                        graces.append((track_index, voice_index, bar_index, note.string, note.effect.grace.fret))
+                        # Negative grace frets become 0, as the parser's negative_frets convention says
+                        grace_fret = max(note.effect.grace.fret, 0)
+                        graces.append((track_index, voice_index, bar_index, note.string, grace_fret))
                     is_tie = note.type == guitarpro.NoteType.tie
                     previous_note_bar = last_note_bar_by_string.get(note.string)
                     last_note_bar_by_string[note.string] = bar_index
