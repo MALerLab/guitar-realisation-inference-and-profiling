@@ -2,4 +2,18 @@
 name = "guitar-realisation-inference-and-profiling"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "nodejs-wheel>=24.19.0",
+    "pyyaml>=6.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pyguitarpro==0.11",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+# Repo root on sys.path so tests import `src.<subpackage>`
+pythonpath = ["."]
+testpaths = ["tests"]
