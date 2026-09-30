@@ -18,6 +18,8 @@
 
 ## Environment
 - `uv` project, Python 3.11. Never `pip install`.
+- Node side (alphaTab, for `src/data/gp_parser.py`): after `uv sync`, run `uv run npm ci` once per
+  clone. `node_modules/` is untracked; `package-lock.json` pins alphaTab.
 
 ## Git remotes
 - One remote, `origin`: fetch from one URL, push to two. Both repos are **public**.
