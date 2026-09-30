@@ -21,6 +21,11 @@
 - Node side (alphaTab, for `src/data/gp_parser.py`): after `uv sync`, run `uv run npm ci` once per
   clone. `node_modules/` is untracked; `package-lock.json` pins alphaTab.
 
+## Worktree setup
+- New worktree → `./setup_worktree.sh`: submodules, `.venv`, `node_modules/`, and links to
+  untracked files kept in `~/storage/grip/` (the storage root).
+- Untracked but needed file → store it under `~/storage/grip/`, add one `link` line to the script.
+
 ## Git remotes
 - One remote, `origin`: fetch from one URL, push to two. Both repos are **public**.
   - fetch: `git@github.com:jae-gye/guitar-realisation-inference-and-profiling.git`
