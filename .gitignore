@@ -19,3 +19,9 @@ node_modules/
 
 # Manifests: parquet tracked, CSV generated on demand
 *.csv
+
+# Survey: findings and literature copies stay local (public repo); protocol + schema tracked
+docs/literature/**/*.pdf
+docs/survey/strands/
+docs/survey/run-*.md
+docs/survey/coordinator-report-*.md
