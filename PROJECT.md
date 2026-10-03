@@ -34,7 +34,8 @@
 - Check: `git remote -v` → 1 fetch line, 2 push lines.
 
 ## Layout rules
-- `src/` subpackages: `data/` · `realisation/` · `technique/` · `evaluation/`.
+- `src/` subpackages: `data/` · `realisation/` · `technique/` · `evaluation/` · `gp_viewer/`
+  (dev tool: browse GP files in a browser; `uv run python -m src.gp_viewer.server`).
 - `configs/<subpackage>/` mirrors `src/<subpackage>/` — no hardcoded parameters in `src/`.
   `configs/experiments/` is added when the first experiment exists.
 - `scripts/` = one-off / temporary, **untracked**. May hardcode values; its settings never

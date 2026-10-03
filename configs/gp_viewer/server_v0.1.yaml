@@ -1,0 +1,31 @@
+# GP viewer server v0.1: where it listens, which files it may serve, how alphaTab reads them.
+# Read by src/gp_viewer/server.py. Paths are relative to the repo root unless they start with ~ or /.
+version: "0.1"
+
+server:
+  # Localhost only; VS Code Remote-SSH forwards the port to the desktop browser
+  host: 127.0.0.1
+  port: 8765
+
+paths:
+  # Only files under this folder can be opened (read only)
+  dataset_root: ~/storage/grip/datasets/dadagp/DadaGP-v1.1
+  # Track list shown in the page; song-level columns are joined in on `path`
+  tracks_manifest: manifests/dadagp_tracks.parquet
+  songs_manifest: manifests/dadagp_songs.parquet
+  # alphaTab's browser build, notation font and soundfont (installed by `uv run npm ci`)
+  alphatab_dist: node_modules/@coderline/alphatab/dist
+
+alphatab:
+  # gp3–5 do not record the alphabet; alphaTab's utf-8 default turns non-Latin track names into "�"
+  text_encoding: windows-1252
+  # Playback soundfont, relative to alphatab_dist; ships with the npm package
+  soundfont: soundfont/sonivox.sf2
+
+track_list:
+  # Most rows one search returns, so the page stays responsive
+  max_rows: 500
+
+gp_files:
+  # Extensions the file endpoint will serve
+  allowed_extensions: [.gp3, .gp4, .gp5, .gpx, .gp]

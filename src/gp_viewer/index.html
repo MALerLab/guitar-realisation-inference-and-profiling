@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRIP GP viewer</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: flex; font: 14px system-ui, sans-serif; color: #222; background: #f4f4f4; }
+  #sidebar { width: 360px; display: flex; flex-direction: column; border-right: 1px solid #ccc; background: #fff; }
+  #sidebar form, #sidebar .controls { padding: 8px; border-bottom: 1px solid #ddd; display: flex; gap: 6px; align-items: center; }
+  #sidebar input[type=text] { flex: 1; padding: 5px; }
+  #result-count { padding: 4px 8px; color: #666; font-size: 12px; }
+  #track-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+  #track-list li { padding: 6px 8px; border-bottom: 1px solid #eee; cursor: pointer; }
+  #track-list li:hover { background: #eef4ff; }
+  #track-list li.selected { background: #d6e6ff; }
+  .song { font-weight: 600; }
+  .track, .file-path { color: #555; font-size: 12px; }
+  .file-path { color: #999; word-break: break-all; }
+  .unreadable { color: #b00; font-size: 12px; }
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #toolbar { padding: 8px; display: flex; gap: 8px; align-items: center; background: #fff; border-bottom: 1px solid #ccc; }
+  #song-title { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #status { color: #666; font-size: 12px; }
+  #viewport { flex: 1; overflow-y: auto; background: #fff; }
+  /* alphaTab playback cursor + highlighted beat */
+  .at-cursor-bar { background: rgba(255, 242, 0, 0.25); }
+  .at-cursor-beat { background: rgba(64, 64, 255, 0.75); width: 3px; }
+  .at-highlight * { fill: #0078ff; stroke: #0078ff; }
+</style>
+</head>
+<body>
+<aside id="sidebar">
+  <form id="path-form">
+    <input type="text" id="path-input" placeholder="GP path under the DadaGP root">
+    <button type="submit">Open</button>
+  </form>
+  <div class="controls">
+    <input type="text" id="search-input" placeholder="Search artist, title, track">
+    <label><input type="checkbox" id="vocal-only" checked> vocal/melody</label>
+  </div>
+  <div id="result-count"></div>
+  <ul id="track-list"></ul>
+</aside>
+<main id="main">
+  <div id="toolbar">
+    <span id="song-title">No file open</span>
+    <select id="track-select" disabled></select>
+    <button id="play-pause" disabled>Play</button>
+    <button id="stop" disabled>Stop</button>
+    <span id="status"></span>
+  </div>
+  <div id="viewport"><div id="score"></div></div>
+</main>
+
+<script type="module">
+import * as alphaTab from '/alphatab/alphaTab.mjs';
+
+const element = (id) => document.getElementById(id);
+const statusLabel = element('status');
+const trackSelect = element('track-select');
+const playPauseButton = element('play-pause');
+const stopButton = element('stop');
+
+// Encoding + soundfont come from the server config, not hardcoded here
+const pageConfig = await (await fetch('/api/config')).json();
+
+const api = new alphaTab.AlphaTabApi(element('score'), {
+  core: { fontDirectory: '/alphatab/font/' },
+  importer: { encoding: pageConfig.text_encoding },
+  player: {
+    playerMode: alphaTab.PlayerMode.EnabledSynthesizer,
+    soundFont: pageConfig.soundfont_url,
+    scrollElement: element('viewport'),
+  },
+});
+
+// Show alphaTab's progress and failures in the toolbar
+api.error.on((error) => { statusLabel.textContent = `alphaTab error: ${error.message ?? error}`; });
+api.soundFontLoad.on((progress) => {
+  statusLabel.textContent = `soundfont ${Math.round((100 * progress.loaded) / progress.total)}%`;
+});
+api.playerReady.on(() => {
+  playPauseButton.disabled = false;
+  stopButton.disabled = false;
+  statusLabel.textContent = '';
+});
+api.playerStateChanged.on((event) => {
+  playPauseButton.textContent = event.state === alphaTab.synth.PlayerState.Playing ? 'Pause' : 'Play';
+});
+playPauseButton.onclick = () => api.playPause();
+stopButton.onclick = () => api.stop();
+
+// After a file loads, list its tracks so any of them can be shown
+api.scoreLoaded.on((score) => {
+  element('song-title').textContent = [score.artist, score.title].filter(Boolean).join(' — ') || '(untitled)';
+  trackSelect.replaceChildren(...score.tracks.map((track) => new Option(`${track.index}: ${track.name}`, track.index)));
+  trackSelect.disabled = false;
+});
+api.renderStarted.on(() => {
+  const shown = api.tracks[0];
+  if (shown) trackSelect.value = shown.index;
+});
+trackSelect.onchange = () => api.renderTracks([api.score.tracks[Number(trackSelect.value)]]);
+
+/** Fetch one GP file's bytes from the server and hand them to alphaTab, showing one track. */
+async function openFile(path, trackIndex = 0) {
+  api.stop();
+  statusLabel.textContent = 'loading…';
+  const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+  if (!response.ok) {
+    statusLabel.textContent = `server: ${response.status} ${response.statusText}`;
+    return;
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  element('path-input').value = path;
+  statusLabel.textContent = '';
+  api.load(bytes, [trackIndex]);
+}
+
+element('path-form').onsubmit = (event) => {
+  event.preventDefault();
+  const path = element('path-input').value.trim();
+  if (path) openFile(path);
+};
+
+/** One list row: song, track, path, and a warning if alphaTab is known to refuse the file. */
+function buildTrackRow(row) {
+  const item = document.createElement('li');
+  const lines = [
+    ['song', `${row.artist ?? '?'} — ${row.title_display ?? '?'}`],
+    ['track', `track ${row.track_index}: ${row.track_name} · ${row.guitar_or_bass}`],
+    ['file-path', row.path],
+  ];
+  if (row.parse_error) lines.push(['unreadable', `alphaTab can't read this file: ${row.parse_error}`]);
+  for (const [className, text] of lines) {
+    const line = document.createElement('div');
+    line.className = className;
+    line.textContent = text;
+    item.append(line);
+  }
+  item.onclick = () => {
+    document.querySelector('#track-list li.selected')?.classList.remove('selected');
+    item.classList.add('selected');
+    openFile(row.path, row.track_index);
+  };
+  return item;
+}
+
+/** Ask the server for manifest tracks matching the search box + toggle, and redraw the list. */
+async function refreshTrackList() {
+  const params = new URLSearchParams({
+    query: element('search-input').value,
+    vocal_or_melody_only: element('vocal-only').checked ? '1' : '0',
+  });
+  const result = await (await fetch(`/api/tracks?${params}`)).json();
+  element('result-count').textContent = `${result.total} tracks` + (result.total > result.rows.length ? ` (showing ${result.rows.length})` : '');
+  element('track-list').replaceChildren(...result.rows.map(buildTrackRow));
+}
+
+// Re-search shortly after typing stops, and on every toggle
+let searchTimer;
+element('search-input').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(refreshTrackList, 250); };
+element('vocal-only').onchange = refreshTrackList;
+refreshTrackList();
+</script>
+</body>
+</html>
