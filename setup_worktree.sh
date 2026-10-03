@@ -25,7 +25,8 @@ link() {  # usage: link <path under STORAGE> <path in repo>
 }
 # One line per untracked file or folder every worktree needs, e.g.:
 # link datasets/goat data/goat
-# link manifests/some_file.parquet manifests/some_file.parquet
 # link env/.env .env
+link manifests/dadagp_songs.parquet manifests/dadagp_songs.parquet
+link manifests/dadagp_tracks.parquet manifests/dadagp_tracks.parquet
 
 echo "worktree ready"

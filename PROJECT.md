@@ -39,9 +39,10 @@
   `configs/experiments/` is added when the first experiment exists.
 - `scripts/` = one-off / temporary, **untracked**. May hardcode values; its settings never
   enter `configs/`. Used twice or proven useful → review and promote to `src/`.
-- `manifests/*.parquet` = tracked source of truth, **indexes only** — ids, paths, splits,
-  metadata. Never musical content (notes, string/fret, techniques). CSV only on demand,
-  never tracked.
+- `manifests/*.parquet` = **indexes only** — ids, paths, splits, metadata, counts. Never
+  musical content (notes, string/fret, techniques). Files live in `~/storage/grip/manifests/`,
+  untracked, linked into `manifests/` by `setup_worktree.sh`; the builder code + config
+  are tracked, so any manifest can be rebuilt. CSV only on demand, never tracked.
 - **Derived datasets** = anything holding musical content → `~/storage/...`, untracked.
   The repo is public: nothing from DadaGP / mySongBook may be committed.
 - `data/` = symlinks to `~/storage/...`, untracked.

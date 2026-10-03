@@ -17,7 +17,8 @@ node_modules/
 # One-off / temporary scripts (promote to src/ once reused)
 /scripts/
 
-# Manifests: parquet tracked, CSV generated on demand
+# Manifests: live in ~/storage/grip/manifests/, linked in by setup_worktree.sh; builders tracked, outputs not
+/manifests/*.parquet
 *.csv
 
 # Survey: findings and literature copies stay local (public repo); protocol + schema tracked
