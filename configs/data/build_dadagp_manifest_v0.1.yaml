@@ -1,4 +1,4 @@
-# DadaGP manifest build v0.1: which files are read, which tracks count as guitar, how tunings are labelled.
+# DadaGP manifest build v0.1: which files are read, which tracks count as guitar or bass, how tunings are labelled.
 # Read by src/data/build_dadagp_manifest.py. Output holds indexes and counts only, never musical content.
 version: "0.1"
 
@@ -24,27 +24,34 @@ runtime:
   # Seed for --sample-size (prototype runs on a random subset)
   sample_seed: 0
 
-guitar_tracks:
-  # A track is guitar if its MIDI program is in the guitar family and its name doesn't say bass ("veto"),
-  # or its name says guitar on any program outside the bass family ("rescue": tabbers often leave the
-  # wrong sound, e.g. "Lead Guitar" on brass 61). Vocal/melody tracks on guitar programs are kept.
-  # Evidence (2026-10-01, 78,628 non-drum tracks): ~260 named guitars on other programs; 35 bass-named
-  # tracks on guitar programs.
+guitar_or_bass_tracks:
+  # Each kept track is labelled guitar_or_bass = "guitar" or "bass"; every other track is left out.
+  # - guitar program: "guitar", unless the name says bass → "bass" (35 such tracks, 2026-10-01)
+  # - bass program: "bass" ("Gitara basowa" = Polish for bass guitar)
+  # - any other program: name says bass → "bass", name says guitar → "guitar" ("rescue": tabbers often
+  #   leave the wrong sound, e.g. "Lead Guitar" on brass 61; ~260 such tracks), else left out
+  # Vocal/melody tracks are kept but flagged (name_says_vocal_or_melody), to isolate later.
   # General MIDI guitar family, 24 nylon … 31 guitar harmonics
-  midi_programs: [24, 25, 26, 27, 28, 29, 30, 31]
-  # General MIDI bass family; a guitar word here usually means bass guitar ("Gitara basowa")
+  guitar_midi_programs: [24, 25, 26, 27, 28, 29, 30, 31]
+  # General MIDI bass family, 32 acoustic bass … 39 synth bass 2
   bass_midi_programs: [32, 33, 34, 35, 36, 37, 38, 39]
   # Names are decoded as windows-1252; these re-readings of the same bytes catch Cyrillic and Hebrew names
   name_alternative_encodings: [cp1251, cp1255]
   # Matched against the lowercased name (and its re-readings); approximate by design
   guitar_name_pattern: '(guit|gtr|gitar|gitaar|chitar|kitar|гитар|גיטר|\bgt\b|\bgt\.|\bgt\s?\d|\bgit\b|\bgit\.|\bgui\b)'
   bass_name_pattern: '(\bbass|\bbajo|\bbasse|\bbaixo|\bbasso|\bbas\b|basowa|basgitaar|бас)'
+  vocal_or_melody_name_pattern: '(vocal|voice|\bvoz\b|\bvox\b|melod|\bsing)'
 
 tunings:
-  # Standard tuning per string count, open-string MIDI pitches, highest string first
-  standard_by_string_count:
-    6: [64, 59, 55, 50, 45, 40]      # E4 B3 G3 D3 A2 E2
-    7: [64, 59, 55, 50, 45, 40, 35]  # + B1
+  # Standard tuning per instrument and string count, open-string MIDI pitches, highest string first
+  standard_by_guitar_or_bass:
+    guitar:
+      6: [64, 59, 55, 50, 45, 40]      # E4 B3 G3 D3 A2 E2
+      7: [64, 59, 55, 50, 45, 40, 35]  # + B1
+    bass:
+      4: [43, 38, 33, 28]              # G2 D2 A1 E1
+      5: [43, 38, 33, 28, 23]          # + B0
+      6: [48, 43, 38, 33, 28, 23]      # C3 + 5-string
   # A shared shift beyond this (e.g. a whole octave) is not a real retuning → tuning_class "other"
   max_abs_shift_semitones: 11
   # Drop tuning: the lowest string sits this far below the shared shift

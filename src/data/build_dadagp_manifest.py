@@ -1,4 +1,4 @@
-"""Build the DadaGP manifest: one row per song, one row per guitar track. Indexes and counts only.
+"""Build the DadaGP manifest: one row per song, one row per guitar or bass track. Indexes and counts only.
 
 Reads the ORIGINAL gp3/gp4/gp5 file of each song (not the tokens, which rewrite drop tunings),
 via alphaTab (src/data/alphatab_track_metadata_dump.mjs). Settings: configs/data/build_dadagp_manifest_v*.yaml.
@@ -50,18 +50,19 @@ class ManifestConfig:
         dataset_root: DadaGP v1.1 root folder.
         output_dir: Folder the two parquet files are written to.
         songs_file: File name of the song table.
-        tracks_file: File name of the guitar-track table.
+        tracks_file: File name of the guitar-or-bass track table.
         node_script: Absolute path to the alphaTab track metadata dump script.
         text_encoding: How alphaTab decodes stored text such as track names.
         timeout_seconds: Seconds before one file's Node run is abandoned.
         worker_count: Files read in parallel.
         sample_seed: Seed for picking a random subset of songs.
         guitar_midi_programs: MIDI programs that count as guitar unless the name says bass.
-        bass_midi_programs: MIDI programs where a guitar word in the name does not rescue a track.
+        bass_midi_programs: MIDI programs that count as bass, whatever the name says.
         name_alternative_encodings: Extra readings of a name's bytes (e.g. cp1251) searched for words.
         guitar_name_pattern: Words in a track name that say guitar.
         bass_name_pattern: Words in a track name that say bass.
-        standard_tunings: Standard tuning per string count, highest string first.
+        vocal_or_melody_name_pattern: Words in a track name that say vocal or melody line.
+        standard_tunings: Standard tuning per "guitar"/"bass" and string count, highest string first.
         max_abs_shift_semitones: Largest shared shift still treated as a real retuning.
         drop_semitones: How far below the shared shift the lowest string sits in a drop tuning.
     """
@@ -81,14 +82,15 @@ class ManifestConfig:
     name_alternative_encodings: tuple[str, ...]
     guitar_name_pattern: re.Pattern[str]
     bass_name_pattern: re.Pattern[str]
-    standard_tunings: dict[int, tuple[int, ...]]
+    vocal_or_melody_name_pattern: re.Pattern[str]
+    standard_tunings: dict[str, dict[int, tuple[int, ...]]]
     max_abs_shift_semitones: int
     drop_semitones: int
 
 
 @dataclass(frozen=True)
 class TuningDescription:
-    """A tuning compared with standard tuning for its string count.
+    """A tuning compared with standard tuning for its instrument and string count.
 
     Args:
         string_offsets: Semitones from standard per string, highest string first; None without a reference.
@@ -108,6 +110,7 @@ def load_manifest_config(config_path: Path) -> ManifestConfig:
         config_path: Path to a configs/data/build_dadagp_manifest_v*.yaml file.
     """
     raw = yaml.safe_load(Path(config_path).read_text())
+    track_rules = raw["guitar_or_bass_tracks"]
     return ManifestConfig(
         version=str(raw["version"]),
         dataset_root=Path(raw["paths"]["dataset_root"]).expanduser(),
@@ -119,14 +122,15 @@ def load_manifest_config(config_path: Path) -> ManifestConfig:
         timeout_seconds=float(raw["runtime"]["timeout_seconds"]),
         worker_count=int(raw["runtime"]["worker_count"]),
         sample_seed=int(raw["runtime"]["sample_seed"]),
-        guitar_midi_programs=frozenset(raw["guitar_tracks"]["midi_programs"]),
-        bass_midi_programs=frozenset(raw["guitar_tracks"]["bass_midi_programs"]),
-        name_alternative_encodings=tuple(raw["guitar_tracks"]["name_alternative_encodings"]),
-        guitar_name_pattern=re.compile(raw["guitar_tracks"]["guitar_name_pattern"]),
-        bass_name_pattern=re.compile(raw["guitar_tracks"]["bass_name_pattern"]),
+        guitar_midi_programs=frozenset(track_rules["guitar_midi_programs"]),
+        bass_midi_programs=frozenset(track_rules["bass_midi_programs"]),
+        name_alternative_encodings=tuple(track_rules["name_alternative_encodings"]),
+        guitar_name_pattern=re.compile(track_rules["guitar_name_pattern"]),
+        bass_name_pattern=re.compile(track_rules["bass_name_pattern"]),
+        vocal_or_melody_name_pattern=re.compile(track_rules["vocal_or_melody_name_pattern"]),
         standard_tunings={
-            int(string_count): tuple(tuning)
-            for string_count, tuning in raw["tunings"]["standard_by_string_count"].items()
+            guitar_or_bass: {int(string_count): tuple(tuning) for string_count, tuning in tunings.items()}
+            for guitar_or_bass, tunings in raw["tunings"]["standard_by_guitar_or_bass"].items()
         },
         max_abs_shift_semitones=int(raw["tunings"]["max_abs_shift_semitones"]),
         drop_semitones=int(raw["tunings"]["drop_semitones"]),
@@ -167,14 +171,15 @@ def run_track_metadata_dump(gp_path: Path, config: ManifestConfig) -> list[dict[
     return [json.loads(line) for line in completed.stdout.splitlines()]
 
 
-def describe_tuning(tuning: tuple[int, ...], config: ManifestConfig) -> TuningDescription:
-    """Compare a tuning with standard tuning for its string count and label its shape.
+def describe_tuning(tuning: tuple[int, ...], guitar_or_bass: str, config: ManifestConfig) -> TuningDescription:
+    """Compare a tuning with standard tuning for its instrument and string count, and label its shape.
 
     Args:
         tuning: Open-string MIDI pitches, highest string first.
+        guitar_or_bass: "guitar" or "bass".
         config: Loaded manifest config (standard tunings, shift limit, drop size).
     """
-    standard = config.standard_tunings.get(len(tuning))
+    standard = config.standard_tunings[guitar_or_bass].get(len(tuning))
     if standard is None:
         return TuningDescription(string_offsets=None, tuning_class="other", shift_semitones=None)
     offsets = tuple(pitch - standard_pitch for pitch, standard_pitch in zip(tuning, standard))
@@ -263,7 +268,7 @@ def version_group_key(artist: str, title: str) -> str:
 
 
 def build_song(song_path: str, config: ManifestConfig) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Read one song and return its song row and its guitar-track rows.
+    """Read one song and return its song row and its guitar-or-bass track rows.
 
     Args:
         song_path: Original GP file, relative to the dataset root.
@@ -281,6 +286,7 @@ def build_song(song_path: str, config: ManifestConfig) -> tuple[dict[str, Any], 
         "version_group": version_group_key(artist_folder, title),
         "track_count": None,
         "guitar_track_count": None,
+        "bass_track_count": None,
         "parse_error": None,
     }
 
@@ -291,23 +297,27 @@ def build_song(song_path: str, config: ManifestConfig) -> tuple[dict[str, Any], 
         staff_rows = run_track_metadata_dump(gp_path, config)
         track_rows = []
         for staff_row in staff_rows:
-            identified_by = guitar_evidence(staff_row, config)
-            if identified_by is not None:
-                track_rows.append(build_track_row(song_path, staff_row, identified_by, config))
+            evidence = guitar_or_bass_evidence(staff_row, config)
+            if evidence is not None:
+                guitar_or_bass, identified_by = evidence
+                track_rows.append(build_track_row(song_path, staff_row, guitar_or_bass, identified_by, config))
     except Exception as error:  # noqa: BLE001 — every failure is recorded, none stops the build
         song_row["parse_error"] = f"{type(error).__name__}: {error}"[:500]
         return song_row, []
 
     song_row["track_count"] = len(staff_rows)
-    song_row["guitar_track_count"] = len(track_rows)
+    song_row["guitar_track_count"] = sum(row["guitar_or_bass"] == "guitar" for row in track_rows)
+    song_row["bass_track_count"] = sum(row["guitar_or_bass"] == "bass" for row in track_rows)
     return song_row, track_rows
 
 
-def guitar_evidence(staff_row: dict[str, Any], config: ManifestConfig) -> str | None:
-    """Say why a staff counts as guitar ("midi_program" or "track_name"), or None if it doesn't.
+def guitar_or_bass_evidence(staff_row: dict[str, Any], config: ManifestConfig) -> tuple[str, str] | None:
+    """Say whether a staff is guitar or bass, and why; None if it is neither.
 
-    Guitar program → guitar, unless the name says bass. Other program → guitar only if the name says
-    guitar (and not bass), and the program is not a bass.
+    Returns (guitar_or_bass, identified_by), e.g. ("guitar", "track_name").
+    - guitar program: "guitar" by program, unless the name says bass → "bass" by name
+    - bass program: "bass" by program, whatever the name says
+    - other program: name says bass → "bass" by name; name says guitar → "guitar" by name
 
     Args:
         staff_row: One row from the track metadata dump.
@@ -320,9 +330,13 @@ def guitar_evidence(staff_row: dict[str, Any], config: ManifestConfig) -> str | 
     says_guitar = config.guitar_name_pattern.search(name) is not None
     program = staff_row["midiProgram"]
     if program in config.guitar_midi_programs:
-        return None if says_bass else "midi_program"
-    if says_guitar and not says_bass and program not in config.bass_midi_programs:
-        return "track_name"
+        return ("bass", "track_name") if says_bass else ("guitar", "midi_program")
+    if program in config.bass_midi_programs:
+        return ("bass", "midi_program")
+    if says_bass:
+        return ("bass", "track_name")
+    if says_guitar:
+        return ("guitar", "track_name")
     return None
 
 
@@ -347,27 +361,31 @@ def searchable_name(track_name: str, alternative_encodings: tuple[str, ...]) -> 
 
 
 def build_track_row(
-    song_path: str, staff_row: dict[str, Any], identified_by: str, config: ManifestConfig
+    song_path: str, staff_row: dict[str, Any], guitar_or_bass: str, identified_by: str, config: ManifestConfig
 ) -> dict[str, Any]:
-    """Turn one dumped guitar staff into a manifest track row.
+    """Turn one dumped guitar or bass staff into a manifest track row.
 
     Args:
         song_path: Original GP file, relative to the dataset root.
         staff_row: One row from the track metadata dump.
-        identified_by: Why the staff counts as guitar: "midi_program" or "track_name".
-        config: Loaded manifest config (tuning references).
+        guitar_or_bass: "guitar" or "bass".
+        identified_by: What decided guitar_or_bass: "midi_program" or "track_name".
+        config: Loaded manifest config (tuning references, vocal/melody pattern).
     """
     # gp3–5 have one staff per track, so track_index alone identifies the track
     if staff_row["staffIndex"] != 0:
         raise ValueError(f"unexpected second staff in track {staff_row['trackIndex']}")
     tuning = tuple(staff_row["tuning"])
-    tuning_description = describe_tuning(tuning, config)
+    tuning_description = describe_tuning(tuning, guitar_or_bass, config)
+    name = searchable_name(staff_row["trackName"], config.name_alternative_encodings)
     return {
         "path": song_path,
         "track_index": staff_row["trackIndex"],
         "track_name": staff_row["trackName"],
         "midi_program": staff_row["midiProgram"],
-        "guitar_identified_by": identified_by,
+        "guitar_or_bass": guitar_or_bass,
+        "identified_by": identified_by,
+        "name_says_vocal_or_melody": config.vocal_or_melody_name_pattern.search(name) is not None,
         "string_count": len(tuning),
         "tuning": list(tuning),
         "string_offsets": (
@@ -395,7 +413,7 @@ def choose_song_paths(all_song_paths: list[str], sample_size: int | None, seed: 
 
 
 def build_manifest(song_paths: list[str], config: ManifestConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Read every song in parallel and return the song table and the guitar-track table.
+    """Read every song in parallel and return the song table and the guitar-or-bass track table.
 
     Args:
         song_paths: Songs to read, relative to the dataset root.
@@ -405,7 +423,9 @@ def build_manifest(song_paths: list[str], config: ManifestConfig) -> tuple[pd.Da
         results = pool.map(partial(build_song, config=config), song_paths, chunksize=20)
     song_rows = [song_row for song_row, _ in results]
     track_rows = [track_row for _, song_track_rows in results for track_row in song_track_rows]
-    songs = pd.DataFrame(song_rows).astype({"track_count": "Int64", "guitar_track_count": "Int64"})
+    songs = pd.DataFrame(song_rows).astype(
+        {"track_count": "Int64", "guitar_track_count": "Int64", "bass_track_count": "Int64"}
+    )
     tracks = pd.DataFrame(track_rows).astype({"shift_semitones": "Int64"})
     return songs, tracks
 
@@ -427,7 +447,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     songs.to_parquet(output_dir / config.songs_file, index=False)
     tracks.to_parquet(output_dir / config.tracks_file, index=False)
-    print(f"{len(songs)} songs ({songs['parse_error'].notna().sum()} failed), {len(tracks)} guitar tracks → {output_dir}")
+    print(f"{len(songs)} songs ({songs['parse_error'].notna().sum()} failed), {len(tracks)} guitar or bass tracks → {output_dir}")
 
 
 if __name__ == "__main__":
