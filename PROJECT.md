@@ -72,3 +72,19 @@ _(empty until data arrives)_
 
 ## Gotchas
 _(verified facts only)_
+- **DadaGP tokens rewrite drop tunings** (`downtune:0`, low-string frets −2, negative frets) →
+  read the original gp3/gp4/gp5, never `.tokens.txt` or the `.gp2tokens2gp.gp5` re-saves.
+- **DadaGP index JSONs** differ from disk by folder-name case for 32 songs (Mac-built) → key on disk paths.
+- **File extension lies** for 63 DadaGP files (60 `.gp3` are GP4 inside, 3 the reverse) →
+  use `detect_gp_format`, which reads the bytes.
+- **alphaTab decodes text as UTF-8 by default**, destroying non-Latin gp3–5 track names into `�`
+  → pass `windows-1252` (keeps every byte; Cyrillic/Hebrew re-readable via cp1251/cp1255).
+- **alphaTab refuses bars with >100 beats** (`Gp3To5Importer._maxBeatCount`): 7 DadaGP songs fail,
+  plus 1 alphaTab `TypeError`; PyGuitarPro reads all 8. Listed in the songs manifest's `parse_error`.
+  Affects `gp_parser.py` too.
+- **gp3–5 give every non-drum track a tuning** (default 6 strings, incl. harp, choir, piano) →
+  string count is no evidence of guitar. The format holds at most 7 strings.
+- **MIDI program ≠ instrument**: ~260 named guitars sit on non-guitar programs, ~35 bass parts on
+  guitar programs → guitar/bass rules in `configs/data/build_dadagp_manifest_v*.yaml`.
+- **DadaGP "leads" token group** = MIDI-program catch-all for non-guitar melody instruments
+  (piano, strings, brass, synth leads); includes the mislabelled guitars above.
