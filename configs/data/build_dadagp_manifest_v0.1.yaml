@@ -1,0 +1,51 @@
+# DadaGP manifest build v0.1: which files are read, which tracks count as guitar, how tunings are labelled.
+# Read by src/data/build_dadagp_manifest.py. Output holds indexes and counts only, never musical content.
+version: "0.1"
+
+paths:
+  # DadaGP v1.1 root: <letter-or-digit>/<artist folder>/<files>; read only, never renamed
+  dataset_root: ~/storage/grip/datasets/dadagp/DadaGP-v1.1
+  # Default output folder (from repo root); the build's --output-dir overrides it
+  output_dir: manifests
+  songs_file: dadagp_songs.parquet
+  tracks_file: dadagp_tracks.parquet
+
+runtime:
+  # Node script that runs alphaTab and prints one JSON row per staff (path from repo root)
+  node_script: src/data/alphatab_track_metadata_dump.mjs
+  # How stored text (track names) is decoded. gp3–5 do not record the alphabet; windows-1252 keeps every
+  # byte (so Cyrillic/Hebrew names can be re-read later) and matches PyGuitarPro. alphaTab's utf-8 default
+  # destroys non-UTF-8 bytes into "�".
+  text_encoding: windows-1252
+  # Seconds before a single file's Node run is abandoned
+  timeout_seconds: 60
+  # Files read in parallel
+  worker_count: 12
+  # Seed for --sample-size (prototype runs on a random subset)
+  sample_seed: 0
+
+guitar_tracks:
+  # A track is guitar if its MIDI program is in the guitar family and its name doesn't say bass ("veto"),
+  # or its name says guitar on any program outside the bass family ("rescue": tabbers often leave the
+  # wrong sound, e.g. "Lead Guitar" on brass 61). Vocal/melody tracks on guitar programs are kept.
+  # Evidence (2026-10-01, 78,628 non-drum tracks): ~260 named guitars on other programs; 35 bass-named
+  # tracks on guitar programs.
+  # General MIDI guitar family, 24 nylon … 31 guitar harmonics
+  midi_programs: [24, 25, 26, 27, 28, 29, 30, 31]
+  # General MIDI bass family; a guitar word here usually means bass guitar ("Gitara basowa")
+  bass_midi_programs: [32, 33, 34, 35, 36, 37, 38, 39]
+  # Names are decoded as windows-1252; these re-readings of the same bytes catch Cyrillic and Hebrew names
+  name_alternative_encodings: [cp1251, cp1255]
+  # Matched against the lowercased name (and its re-readings); approximate by design
+  guitar_name_pattern: '(guit|gtr|gitar|gitaar|chitar|kitar|гитар|גיטר|\bgt\b|\bgt\.|\bgt\s?\d|\bgit\b|\bgit\.|\bgui\b)'
+  bass_name_pattern: '(\bbass|\bbajo|\bbasse|\bbaixo|\bbasso|\bbas\b|basowa|basgitaar|бас)'
+
+tunings:
+  # Standard tuning per string count, open-string MIDI pitches, highest string first
+  standard_by_string_count:
+    6: [64, 59, 55, 50, 45, 40]      # E4 B3 G3 D3 A2 E2
+    7: [64, 59, 55, 50, 45, 40, 35]  # + B1
+  # A shared shift beyond this (e.g. a whole octave) is not a real retuning → tuning_class "other"
+  max_abs_shift_semitones: 11
+  # Drop tuning: the lowest string sits this far below the shared shift
+  drop_semitones: 2
