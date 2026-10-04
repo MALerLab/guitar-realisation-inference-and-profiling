@@ -26,3 +26,5 @@ docs/literature/**/*.pdf
 docs/survey/strands/
 docs/survey/run-*.md
 docs/survey/coordinator-report-*.md
+docs/survey/optimisers/*
+!docs/survey/optimisers/brief.md
