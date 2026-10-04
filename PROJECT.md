@@ -9,6 +9,7 @@
   decisions + options considered, results, survey.
 - **Overlap:** state the rule here in one line + a Notion link; the reasoning lives in Notion.
 - **Conflict:** Notion wins on plan; this file wins on repo facts (checked against code).
+  - Exception: optimiser requirements. `docs/optimiser_requirements.md` wins; Notion mirrors it.
 - **Bloat:** long detail → `docs/*.md`, linked from here.
 
 ## Notion
@@ -53,17 +54,23 @@
 - `experiments/`: `exp<NNN>_<YYMMDD>_<rest>`.
 
 ## Vocabulary (one word per concept, in code and docs)
-- **realisation** — one fret/string path for a fixed pitch + timing passage.
+- **realisation** — one fingering (string + fret per note, possibly finger / hand position) plus
+  its **pick plan** (stroke per note: down, up, or none for a hammer-on / pull-off) for a fixed
+  pitch + timing passage. Both are chosen in one search.
 - **technique compatibility** — which techniques a realisation supports.
 - **reference coverage** — does the candidate set contain the trusted human realisation,
   or something materially similar?
 - **technique coverage** — does ≥1 plausible candidate preserve the withheld technique?
 
 ## Invariants
-- Generate → freeze candidates → analyse techniques. Generation is technique-agnostic.
+- Generate → freeze candidates → analyse techniques. Full list: `docs/optimiser_requirements.md`.
+  - Generation prices the fretting hand and the picking hand with equal weight (pick direction,
+    string crossings, legato where it changes playability).
+  - No technique favouritism: generation never drops or ranks down a realisation for suiting
+    one technique badly. Technique compatibility is computed after generation.
   - `src/realisation/` never imports from `src/technique/` or `src/evaluation/`.
-  - Source fingering/technique never chooses positions; compatibility scores never steer
-    generation.
+  - The source tab's fingering, technique marks and pickstroke marks never enter generation;
+    compatibility scores never steer generation.
 - Source fingering = evidence, not target. Reference coverage is not the evaluation target.
 - Missing annotation ≠ negative label (incl. absent DadaGP technique tokens).
 - mySongBook data is never redistributed.

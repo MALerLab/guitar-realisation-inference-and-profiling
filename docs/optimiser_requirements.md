@@ -1,8 +1,8 @@
 # Optimiser requirements
 
 What GRIP's own two-hand optimiser must do. The optimiser takes a note sequence and generates
-a set of playable realisations (string + fret + pick direction per note, possibly finger / hand
-position), priced by the effort of both the fretting hand and the picking hand.
+a set of playable realisations (fingering + pick plan: string, fret and stroke per note, possibly
+finger / hand position), priced by the effort of both the fretting hand and the picking hand.
 
 - Origin: R1–R12 from the optimiser survey brief (`docs/survey/optimisers/brief.md`, 2026-10-03),
   revised with Jae on 2026-10-04 after the survey walkthrough.
@@ -16,11 +16,11 @@ position), priced by the effort of both the fretting hand and the picking hand.
 
 | id | requirement |
 |---|---|
-| R1 | **Input:** monophonic note sequence, pitch + onset + duration per note. Nothing else from the source tab enters generation: no fingering, technique marks or pickstroke marks |
+| R1 | **Input:** monophonic note sequence, pitch + onset + duration per note. No performance information from the source tab enters generation: no fingering, technique marks or pickstroke marks |
 | R2 | **Picking-hand model, equal weight:** the cost models the picking hand with the same importance as the fretting hand; this is the project's core. A realisation = fingering + pick plan, chosen together in one search, because each hand's best choice depends on the other. Tracks the last stroke direction, so string crossings, string skips and sweeps are priced. Default: the player is equally proficient in every picking technique. Hammer-ons / pull-offs count where they change playability (a note that can't be picked in time); otherwise they're style. How to tell the two apart is decided at the picking-hand build step |
 | R3 | **Fretting-hand state:** tracks both the fingers and the hand (wrist), for different things |
 | R4 | **Timing-aware:** a hand movement (fretting-hand shift, picking-hand string crossing) costs more when there is less time to make it. This involves note-density + tempo |
-| R5 | **Several realisations:** returns a set, not one fingering |
+| R5 | **Several realisations:** returns a set, not one realisation |
 | R6 | **Meaningful alternatives:** an alternative counts by its *effect* (lower difficulty and/or a different technique profile, including the effect on following notes), not by how many notes changed. One-note changes count if they produce a meaningful difference in how the difficulty changes, future notes change, or different techniques become in/compatible |
 | R7 | **No technique favouritism:** generation never drops or ranks down a realisation for suiting one technique badly; it's still playable, on a different avenue. Technique compatibility (e.g. economy 24 %, alternate 98 %) is computed after generation. A technique is favoured only once the user states a preference, and preferences re-rank the generated set |
 | R8 | **Hard vs soft, nothing impossible by assumption:** hard feasibility kept separate from soft playability cost. Every "impossible" rule or threshold needs Jae's approval; very hard = expensive, never deleted |
@@ -38,9 +38,13 @@ position), priced by the effort of both the fretting hand and the picking hand.
 - The source tab is evidence for pitch + timing only. Its fingering, technique marks and
   pickstroke marks stay hidden from generation, because the evaluation checks whether the
   pipeline recovers them.
+- Allowed from the source file besides the notes: instrument setup (R11), tempo, bar lines and
+  rests (timing + phrase design). These describe the music, not how it was played.
 
 ### R2: picking-hand model
 - The project's core: the picking hand gets the same weight as the fretting hand.
+  - Equal weight = equal modelling importance, not equal cost coefficients. Coefficients come
+    from the case-by-case cost review.
   - Survey (2026-10-03): no surveyed tool that chooses string + fret tracks pick direction. Some
     charge a flat string-change cost without it (Hori & Sagayama 2016, Bontempi, `gtrsnipe`).
   - Picking-hand effort appears only as difficulty features on a fixed tab (Rodríguez & Klapuri
@@ -54,14 +58,14 @@ position), priced by the effort of both the fretting hand and the picking hand.
 - Example, A minor arpeggio A3 C4 E4 A4 C5:
   - sweep shape 12-10-9-10-8 on strings A D G B e: one note per string, 4 string crossings.
     All downstrokes → the crossings are nearly free; strict down-up → every crossing is awkward.
-  - 2-notes-per-string version (A 12, A 15, D 14, G 14, G 17): 2 crossings.
+  - a version on fewer strings (A 12, A 15, D 14, G 14, G 17): 2 crossings.
   - A string-change cost without stroke direction ranks the sweep shape down.
 - For the fretting hand alone, a string change is nearly free: the finger lands early, because
   the new string isn't sounding yet (Heijink & Meulenbroek 2002). The string-change cost sits
   mainly in the picking hand.
 - Legato (Jae's test): if leaving a hammer-on / pull-off out doesn't hurt playability, it's style;
   if a note can't be picked in time, it's playability.
-  - Probably: pick plan per note = down, up, or none (hammer-on / pull-off).
+  - Pick plan per note = down, up, or none (hammer-on / pull-off).
 - Open (build step): what the picking-hand state holds besides the last stroke direction.
 
 ### R3: fretting-hand state
@@ -84,11 +88,12 @@ position), priced by the effort of both the fretting hand and the picking hand.
 
 ### R4: timing-aware
 - Current idea: movement cost scaled by the time available (Hori family: distance ÷ time).
-- Both hands: a string crossing with too little time is what makes a hammer-on / pull-off
-  necessary (R2).
+- Both hands: when the next string crossing comes too fast to pick every note, a hammer-on /
+  pull-off before it frees the picking hand (R2).
 - Speed needs tempo: ticks give note values (16ths vs quarters), not how fast a beat is.
   - The GP parser outputs ticks (960 per quarter note) and doesn't read bpm yet
-    (`docs/parser_audit.md`, decision 12, timing unit). Reading tempo changes is deferred.
+    (`docs/parser_audit.md`, decision 12, timing unit). Reading bpm (incl. tempo changes) is
+    deferred.
   - Only the time between neighbouring notes is needed, so repeats can stay unplayed-out
     (exception: the jump at a repeat sign).
 - Survey test phrase 3: five time-blind tools kept a slow line at frets 7–17 to avoid one shift,
@@ -112,9 +117,17 @@ position), priced by the effort of both the fretting hand and the picking hand.
   realisation for suiting one technique badly". The old name drifted into "keep the picking hand
   out of generation", which contradicts R2 (picking-hand model).
 - Still forbidden in generation: dropping or ranking down a realisation for suiting one technique
-  badly; using the source tab's fingering or technique marks (R1).
+  badly; using the source tab's fingering, technique marks or pickstroke marks (R1).
 - Allowed in generation: picking-hand effort, pick direction, legato where it changes
   playability (R2).
+- Applies per fingering: the search prices each fingering with its most ergonomic pick plan
+  (R2 default: equal proficiency), so a fingering is never ranked down because one particular
+  technique suits it badly.
+- Generation prices motions (stroke direction, string crossings). Technique names (alternate,
+  economy, sweep) are patterns the readout spots in the pick plan afterwards.
+- Open: is compatibility scored per fingering (re-planned under each technique) or per
+  realisation? Same question for the difficulty readout's "easiest viable realisation under a
+  chosen technique".
 - Compatibility doesn't always need computing from scratch: if generation keeps its reasoning
   (pick plan, cost breakdown), the technique readout may reuse it.
 - User preferences (per technique, per mode: drill vs learn easily) = next stage of the project.
