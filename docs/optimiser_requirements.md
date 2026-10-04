@@ -16,8 +16,8 @@ finger / hand position), priced by the effort of both the fretting hand and the 
 
 | id | requirement |
 |---|---|
-| R1 | **Input:** monophonic note sequence, pitch + onset + duration per note. No performance information from the source tab enters generation: no fingering, technique marks or pickstroke marks |
-| R2 | **Picking-hand model, equal weight:** the cost models the picking hand with the same importance as the fretting hand; this is the project's core. A realisation = fingering + pick plan, chosen together in one search, because each hand's best choice depends on the other. Tracks the last stroke direction, so string crossings, string skips and sweeps are priced. Default: the player is equally proficient in every picking technique. Hammer-ons / pull-offs count where they change playability (a note that can't be picked in time); otherwise they're style. How to tell the two apart is decided at the picking-hand build step |
+| R1 | **Input:** monophonic note sequence (pitch + onset + duration per note), the tempo, and the instrument setup (R11). The source tab's fingering and pickstroke marks never enter generation. Its articulation marks (e.g. bends, slides, hammer-ons / pull-offs, left-hand taps) enter only where enforced: a switch per articulation type, settable per passage, makes a marked articulation a fixed part of the music; switched off, the mark is hidden and the articulation is decided by playability (R2) |
+| R2 | **Picking-hand model, equal weight:** the cost models the picking hand with the same importance as the fretting hand; this is the project's core. A realisation = fingering + pick plan, chosen together in one search, because each hand's best choice depends on the other. Tracks the last stroke direction, so string crossings, string skips and sweeps are priced. Default: the player is equally proficient in every picking technique. Legato (hammer-on / pull-off) is functional: chosen where it makes the passage easier to play, never added for style. Stylistic legato enters only as an enforced articulation (R1). Picking-hand modes: pick, hybrid picking and right-hand tapping are all realisation options; none is left out because fewer players use it. Harmonics (either hand) are an articulation, not an alternate way of playing, and are out for now |
 | R3 | **Fretting-hand state:** tracks both the fingers and the hand (wrist), for different things |
 | R4 | **Timing-aware:** a hand movement (fretting-hand shift, picking-hand string crossing) costs more when there is less time to make it. This involves note-density + tempo |
 | R5 | **Several realisations:** returns a set, not one realisation |
@@ -35,11 +35,21 @@ finger / hand position), priced by the effort of both the fretting hand and the 
 ### R1: input
 - Scope: leads, solos, melodies, single-note riffs. Chords, strumming and rhythm parts are out.
 - Onset and duration feed R4 (timing-aware) and phrase design.
-- The source tab is evidence for pitch + timing only. Its fingering, technique marks and
-  pickstroke marks stay hidden from generation, because the evaluation checks whether the
-  pipeline recovers them.
+- The source tab's fingering and pickstroke marks stay hidden from generation, because the
+  evaluation checks whether the pipeline recovers them.
 - Allowed from the source file besides the notes: instrument setup (R11), tempo, bar lines and
   rests (timing + phrase design). These describe the music, not how it was played.
+- Articulations (2026-10-04): a guitarist learning by ear *hears* bends, slides and legato, so
+  these can be part of the music; fingering and pick strokes can't be heard.
+  - Enforced articulation = the mark is fixed; only where on the neck it's played stays free.
+  - Granular: one switch per articulation type, settable per passage (e.g. the student tool's
+    highlighted section).
+  - Jae: bends are sacred, the last thing anyone turns off (a bend played as a slide is not the
+    same lick). Hammer-ons / pull-offs are usually negligible unless a strong stylistic point.
+  - Default: every articulation type enforced. Community tabs only mark an articulation when
+    it's strictly or characteristically needed, so a mark is respected; switches exist because
+    community tabs aren't always reliable.
+  - Evaluation runs hide the articulations they test for recovery.
 
 ### R2: picking-hand model
 - The project's core: the picking hand gets the same weight as the fretting hand.
@@ -63,8 +73,11 @@ finger / hand position), priced by the effort of both the fretting hand and the 
 - For the fretting hand alone, a string change is nearly free: the finger lands early, because
   the new string isn't sounding yet (Heijink & Meulenbroek 2002). The string-change cost sits
   mainly in the picking hand.
-- Legato (Jae's test): if leaving a hammer-on / pull-off out doesn't hurt playability, it's style;
-  if a note can't be picked in time, it's playability.
+- Legato (Jae's test): if leaving a hammer-on / pull-off out makes the passage harder, it's
+  playability. GRIP doesn't copy the original recording, so unenforced legato is always
+  functional.
+  - Typical uses (Jae): a legato note before a string skip gives the next pick more time; a
+    hammer-on / pull-off simplifies a complicated sweep / economy pattern.
   - Pick plan per note = down, up, or none (hammer-on / pull-off).
 - Open (build step): what the picking-hand state holds besides the last stroke direction.
 
@@ -117,7 +130,8 @@ finger / hand position), priced by the effort of both the fretting hand and the 
   realisation for suiting one technique badly". The old name drifted into "keep the picking hand
   out of generation", which contradicts R2 (picking-hand model).
 - Still forbidden in generation: dropping or ranking down a realisation for suiting one technique
-  badly; using the source tab's fingering, technique marks or pickstroke marks (R1).
+  badly; using the source tab's fingering or pickstroke marks, or articulation marks that
+  aren't enforced (R1).
 - Allowed in generation: picking-hand effort, pick direction, legato where it changes
   playability (R2).
 - Applies per fingering: the search prices each fingering with its most ergonomic pick plan

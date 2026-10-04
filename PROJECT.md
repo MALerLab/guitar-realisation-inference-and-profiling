@@ -57,6 +57,8 @@
 - **realisation** — one fingering (string + fret per note, possibly finger / hand position) plus
   its **pick plan** (stroke per note: down, up, or none for a hammer-on / pull-off) for a fixed
   pitch + timing passage. Both are chosen in one search.
+- **string numbers** — strings are named 1–6 (7 on a 7-string), 1 = highest-pitched (thin e),
+  as in GP and `gp_parser.py`. Never letter names (e/B/G…) in code, docs or chat.
 - **technique compatibility** — which techniques a realisation supports.
 - **reference coverage** — does the candidate set contain the trusted human realisation,
   or something materially similar?
@@ -69,8 +71,9 @@
   - No technique favouritism: generation never drops or ranks down a realisation for suiting
     one technique badly. Technique compatibility is computed after generation.
   - `src/realisation/` never imports from `src/technique/` or `src/evaluation/`.
-  - The source tab's fingering, technique marks and pickstroke marks never enter generation;
-    compatibility scores never steer generation.
+  - The source tab's fingering and pickstroke marks never enter generation; its articulation
+    marks (bends, hammer-ons…) enter only where switched to enforced (R1); compatibility scores
+    never steer generation.
 - Source fingering = evidence, not target. Reference coverage is not the evaluation target.
 - Missing annotation ≠ negative label (incl. absent DadaGP technique tokens).
 - mySongBook data is never redistributed.

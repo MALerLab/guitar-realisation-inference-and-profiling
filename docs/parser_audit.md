@@ -238,6 +238,17 @@ What that JSON looks like 🧪:
 
 - **My pick is D**: one parser gives GOAT, DadaGP and mySongBook the same conventions. §5 shows alphaTab loses nothing we need on gp3–5, and the cross-check keeps that true across upgrades.
 
+## Parser to-dos
+> Features the optimiser needs that the parser doesn't output yet. Origin: optimiser design
+> log (`docs/optimiser_design_log.md`), 2026-10-04.
+
+| # | to-do | why | priority |
+|---|---|---|---|
+| 1 | starting tempo (bpm) per song | R4 timing needs seconds, not just ticks | first build chunk |
+| 2 | tempo changes within a song | correct seconds after a tempo change | later |
+| 3 | bend amount (semitones), per bent note | a bend switched off must become a fretted note at the bent-to pitch; the amount also decides the bending finger (index alone for small bends; ring / pinky with support for a full bend) | later; until then bends can't be switched off |
+| 4 | GP capo convention: fret relative to capo vs absolute; partial capo in gp3–5 | open question since the audit (capo not a requirement for now, R11) | later |
+
 ## Decisions for Jae
 > Each row is one open choice. My pick is in bold, with one line of why.
 
