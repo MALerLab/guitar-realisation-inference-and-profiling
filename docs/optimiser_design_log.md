@@ -5,6 +5,8 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
 *how* we build it. Requirements win over this log in a conflict.
 
 - Notion: updated once per finished build chunk, not per decision.
+- Every finished build records **full intention vs current version's limitation** for each
+  stopgap (e.g. phrase starts: Layer 1 uses rests as a proxy; intention = real phrase finding).
 - Newest topic last. Each entry: date, decision, reason in one line.
 
 ## Guiding principle
@@ -67,7 +69,7 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
 - **Guitar built for:** standard (single scale length). Fanned frets (per-string scale length)
   = future config option, low priority.
 
-## 3. Search shape (in discussion, 2026-10-04)
+## 3. Search shape (2026-10-04)
 - Jae: a guitarist thinks phrase by phrase, not note by note. A search that only judges
   neighbouring note pairs doesn't match that.
 - Deferred into this discussion: search algorithm, where history lives, phrase handling.
@@ -132,7 +134,7 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
 - **Compute estimate:** ≈ 7 positions × 4 fingers × 25 hand positions × 3 strokes ≈ 2,100 states
   per note, ≈ 4.4 M comparisons per note. No pruning for speed; measure once it runs.
 
-## 5. Picking-hand state (in discussion, 2026-10-04)
+## 5. Picking-hand state (2026-10-04)
 - Jae's input:
   - Leaning: down / up / none is enough to track the picking hand for the most part.
   - Pickslant / wrist angle: he thinks about it while rebuilding his technique, but not when
@@ -219,11 +221,19 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
   - Later (ignored in v1): vibrato (needs a fretted note), let ring (overlapping notes on different
     strings), palm mute, tremolo picking, ghost notes, staccato.
 
-## 6. Cost framework (in discussion, 2026-10-04)
+## 6. Cost framework (2026-10-04 → 2026-10-05)
 - Set up regardless (Jae: "sounds good", 2026-10-04):
   - Cost term = one small named function of (previous state, current state, time between the
     notes) → a number, tagged fretting hand or picking hand.
   - Every term's value stored per note pair (R10); weights in `configs/realisation/`, never in code.
+- **Jae on adding up (2026-10-05, provisional):** the real question = 5 moves × 10 vs
+  3 moves × 9 + one mega move, same total. "It depends" — mostly on what the mega move is
+  (→ individual term costs). Usual go-to: avoid the mega move. Subject to tuning.
+  - Adding up matters mainly for the **difficulty readout** (30 s of grind ≠ 3 s); in the search
+    it only matters when an easier way to play the same notes exists.
+  - Proposed: search uses (c) with one config knob for how much extra big moves are punished
+    (1 = plain sum); the readout's adding-up is decided separately later.
+  - **Decision (2026-10-05, provisional): approved as proposed.**
 - **Awaiting Jae's explicit answers:**
   1. How costs add up over a passage: (a) plain sum · (b) worst moment (Hori) · (c) sum with big
      moves punished extra (e.g. squared). Question to Jae: does a passage feel hard by total
@@ -234,9 +244,181 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
   3. Hard rules (R8): separate named list, checked apart from costs, reported by name, each one
      needs Jae's yes. Currently empty — confirm.
 
+- **Decision (2026-10-05): weights are hand-set in config, tuned by Jae** against the benchmark
+  songs. Not learned from tab data.
+  - Why (Jae): guitar expertise is his unique contribution; manual tuning for better output.
+  - Hand-made datasets (GOAT, ProgGP — both acquired 2026-10-05, probes pending) can later
+    *check* the tuned weights, e.g. reference coverage, rather than set them.
+
+- **Decision (2026-10-05): hard rules** = a separate named list, checked apart from the costs,
+  reported by name when it blocks something; each rule needs Jae's yes. The list started empty;
+  hard rule #1 (a new phrase starts with a downstroke) added 2026-10-05 → see Phrase starts.
+
+## 7. Starter cost terms (2026-10-05)
+- Build order chosen: starter terms → build → Jae tunes against real output (easier to judge
+  with real examples: why this sucks, why that's better).
+- **Every term has its own weight knob**, tweakable without changing the formula. Tune knobs
+  first; change a formula only if knobs can't fix it.
+- **Approved:**
+  - shift (fretting hand moves, mm ÷ time available) — weight `left_shift`
+  - stretch (finger reach from its natural spot under the hand, mm, every note) — weight
+    `fingers_stretch`
+  - legato: flat cost, not hard to play but never preferred over an easy pick; value set
+    relative to the picking table below
+  - hammer-on from nowhere: high flat cost, value pending
+  - open-string bend: extremely high flat cost
+  - adding up: each move's total raised to the knob (start 2), then summed
+  - Naming: Jae's weight names; reconcile with the "fretting hand" vocabulary at build time.
+- **Picking hand: replaced "pick travel distance" with a case-by-case table** (Jae: it's less
+  about distance travelled than case by case). Baseline: a downstroke on one string = 1;
+  same-string upstroke after a downstroke ≈ 1. Every case × a multiplier on the time since the
+  last picked note. Table in discussion.
+
+### Picking table, same string (Jae, 2026-10-05, guitar in hand)
+- **S1 down → up:** the baseline.
+- **S2 up → down:** baseline normally, but **starting a new phrase on an upstroke is awkward** →
+  heavier cost at a phrase start. An upstroke start usually means the passage continues the
+  previous phrase (matches the requirements doc's phrase-border soft hint). Jae: maybe personal,
+  small precaution.
+  - Layer 1 has no phrase boundaries yet → needs a proxy (e.g. first stroke after a rest) or waits
+    for Layer 2.
+- **S3 down → down:** costs extra. Jae's comfortable speeds: repeated downstrokes ≈ 95 bpm (higher
+  possible, not sustainable); alternate picking ≈ 190 bpm. Repeated downstrokes are harder than
+  alternate picking at twice the bpm — not "half speed = same effort".
+  - Endurance: repeated downstrokes should drain it faster (if endurance is tracked per technique).
+- **S4 up → up:** much, much higher cost. Max ≈ 84 bpm, very uncomfortable.
+- Idea (from these numbers): each case could be defined by its comfortable max speed, and the
+  time multiplier derived from it — cost rises as the time per stroke nears that case's limit.
+  Not decided.
+- bpm figures are for 16th notes (4 notes per beat).
+- Top-speed idea: revisit at the end of the table. Caveat (Jae): only one player's numbers —
+  a jazz guitarist may feel very different.
+- Jae: "down → down or up → up are the same cost; most people would find them similarly
+  difficult" (his own down → down difficulty = a bad habit he's fixing). To-do: quick online
+  check later. ⚠️ Pending clarification: same-string repeats (S3 vs S4) or sweeps (A1 vs B1)?
+
+### Picking table, neighbouring strings toward string 1 (Jae, 2026-10-05)
+- Order: **A1 < A3 < A4 ≪ A2.**
+- **A1 down → down (sweep):** easy; cheaper than A3. Equally proficient in both → economy is more
+  ergonomic by definition. Many players may prefer alternate, but costs follow ergonomics
+  (no technique favouritism).
+- **A2 up → up (reverse sweep):** horrible; very costly, almost always avoided.
+- **A3 down → up (outside):** easy enough; slightly more expensive than A1.
+- **A4 up → down (inside):** in practice similar to A3; tagged slightly more expensive than A3 to
+  stay consistent with ergonomics.
+- Jae's idea: a user who prefers alternate picking states it, and A3 / A4 costs drop (and the
+  A3–A4 gap shrinks). ⚠️ Must re-score the frozen set, not re-run the search (R7: preferences
+  re-rank, never steer generation).
+- Baseline question (Jae): make strict alternate picking the reference? → dropped; *Stratosphere*
+  shows it's a bad idea. Unit stays: alternate on one string = 1.
+
+### Picking table, clarifications + toward string 6 (Jae, 2026-10-05)
+- Ambiguity resolved: one string → alternate < down → down < up → up (S1 < S3 < S4). Across
+  strings → down-down sweep = up-up sweep to start (Jae personally finds the down-down sweep
+  harder; forum survey later).
+- **Terminology:** never "reverse sweep". A1 = **down-down sweep**, B1 = **up-up sweep**. A2 / B2 =
+  a stroke going against the direction of the string change (not a sweep).
+- **B1 up → up (up-up sweep):** same as A1 (survey pending).
+- **B2 down → down against the string change:** very expensive, same as A2.
+- ~~B3 < B4~~ → superseded by the crossing rule below (confirmed).
+- **Crossing rule (Jae):** a crossing is marginally cheaper when its first stroke already moves the
+  hand toward the next string.
+  - Toward string 1: starting with a downstroke → A3 (down on 4 → up on 3) < A4 (up on 4 → down on 3).
+  - Toward string 6: starting with an upstroke → B4 (up on 3 → down on 4) < B3 (down on 3 → up on 4).
+    Flips Jae's earlier "B3 < B4" — confirmed by Jae (2026-10-05).
+  - **The differences are minimal.** Setting A3 = A4 = B3 = B4 is a legitimate option for fine
+    tuning.
+- **Name:** A2 / B2 = **against-crossing** in code. In docs and chat, spell it out with strings
+  and strokes (e.g. "up on 4 → up on 3") when verbosity isn't a problem.
+- Jae doesn't use the terms "inside / outside picking" → avoid in chat.
+
+### Picking table, string skips (Jae, 2026-10-05, guitar in hand)
+- Skip 5 → 3 (toward string 1), cheapest to dearest:
+  down on 5 → up on 3 < down on 5 → down on 3 < up on 5 → down on 3 < up on 5 → up on 3.
+  - down → down over a skip is like down → down on one string: stop, pull back up, go down again;
+    an upstroke continues from the stop instead. Real difference minimal; fine as the basis.
+  - up on 5 → up on 3 (against-skip): expensive, "ew no".
+- Skip 3 → 5 (toward string 6): the mirror image.
+  - But against-skips differ: up on 5 → up on 3 is really awkward; down on 3 → down on 5 is
+    somewhat easier → Jae finds downstrokes easier in general.
+- ~~Proposed general rule: downstrokes are easier than upstrokes~~ → replaced (2026-10-05):
+  **repeated downstrokes are easier than repeated upstrokes**, on one string (S3 < S4) and on
+  skips (down on 3 → down on 5 < up on 5 → up on 3). **Exception:** sweeps across neighbouring
+  strings, down-down = up-up.
+  - Why (Jae): practice history. Repeated downpicking is drilled early; sweeps are learned in
+    both directions together. One player's data → survey later.
+- Longer skips are harder.
+- **Streak effects (observed; need memory across several notes):**
+  - down on 5 → up on 3 repeated: harder than twice the single skip.
+  - 5 → 3 → 1 (skips in a row): harder still.
+  - 5 → 3, then 4 → 2: the 3 → 4 neighbour move doesn't reset the load; as hard as two skips in a
+    row.
+  - Maybe endurance, maybe a skip-specific effect. Jae: fine to fine-tune with examples later.
+- **Decision: skip model for v1** = Jae's order per pattern + extra cost per additional skipped
+  string. Streak effects and endurance (physical and mental) wait for the tuning stage.
+
+### Phrase starts (Jae, 2026-10-05, guitar in hand)
+- "Downstrokes are easier" narrowed to: **a downstroke is easier to start a new phrase / pattern.**
+  Not a general rule.
+- Evidence: a *Stratosphere* passage — continuous 16th-note alternate picking on one string for
+  several bars, **no rests**, while the fretting hand gets busy.
+  - Bars 1–3: similar patterns in different places → one mental group. The alternation puts an
+    upstroke at the start of each bar; awkward at first, Jae got used to it.
+  - Bar 3 ends on a downstroke. Bar 4 = a different pattern → a new phrase in Jae's head. Natural
+    alternation says upstroke; Jae forced a downstroke → down → down on one string at 16th speed
+    → stutter.
+- **Phrase boundaries can be purely mental** (pattern change, no rest) → rests can't define
+  phrases; most phrase starts need Layer 2.
+- **The urge to start a new phrase with a downstroke overrides natural alternation**, even at
+  the price of a repeated downstroke.
+- Implication: the two-hand search can escape the dilemma (awkward upstroke start vs stuttering
+  down → down) by changing something earlier, e.g. a hammer-on in bar 3 skips one pick stroke so
+  bar 4 lands on a downstroke. Needs the phrase-start cost to exist.
+- **Upstroke to start a new phrase = very expensive** for Jae; most players probably alike (some
+  may be up/down ambidextrous) → candidate toggle later.
+- (Jae would normally start bars 1–3 with downstrokes too.)
+- **Rests don't define phrases** unless the rest is of significant length; a small rest is often
+  part of an ongoing phrase. A long rest = a strong boundary signal, not the definition.
+- **Silent strokes through short rests (Jae, from a drill book; he does it naturally):** in a
+  continuous 16th pattern with a 16th rest, the hand keeps alternating in the air, so the note
+  after the rest repeats the stroke before it: down – rest – down, up – rest – up. Not a
+  stutter. Another reason rests can't define phrases. → Record now, fine-tune later.
+- **HARD RULE #1 (approved by Jae, 2026-10-05): a new phrase starts with a downstroke.**
+  - Not physically impossible — fundamental to everything that follows it.
+  - Config toggle, on by default; off for up/down-ambidextrous players.
+  - Trigger = whenever a new phrase begins (not "after a rest").
+  - Never makes a passage unplayable: a repeated downstroke is always available, and the search
+    may find a legato escape earlier.
+  - ⚠️ **Depends entirely on finding phrase boundaries well.** If the system can't find them as
+    well as Jae would like: toggle the rule off (keeping it in the list), or learn where
+    boundaries are (e.g. a neural network trained on boundaries).
+- Escape route confirmed by Jae: he probably uses legato this way unconsciously. Whether other
+  players struggle as much with upstroke phrase starts: survey online / ask Pedro.
+- ~~At a lick boundary: soft preference for a downstroke~~ → superseded by hard rule #1.
+- **Decision: Layer 1 proxy for phrase starts** = rests of at least a set length (config, start:
+  1 beat). Improved gradually; real phrase finding arrives with Layer 2.
+  - **Bar lines as a second proxy: own toggle, default off** → only rests are boundaries for now.
+    Risk if on: pickup notes before the bar line, continuous 16ths with upstrokes on bar starts,
+    odd groupings crossing bar lines.
+
+### Starter numbers (2026-10-05)
+- **Values live only in `configs/realisation/optimiser_cost_v0.1.yaml`** (one source of truth);
+  first guesses following every order above; Jae tunes them once tabs are generated.
+- **Decision: B2 (down on 3 → down on 4) very slightly cheaper than A2 (up on 4 → up on 3)** —
+  follows the repeated-downstroke rule, and matches how it feels on the guitar.
+- Config names for the cases: `alternate`, `repeated_down` / `repeated_up`, `down_down_sweep` /
+  `up_up_sweep`, `first_stroke_toward_move` / `first_stroke_against_move`,
+  `against_crossing_*`, `against_skip_*`, `per_extra_skipped_string`.
+- `left_shift` and `fingers_stretch` are `null` until the timing topic sets their formulas.
+  - **Limitation (Layer 1):** misses purely mental boundaries, like the *Stratosphere* bar-4 case.
+- Re-scoring confirmed: preferences re-score the frozen set. Expected and wanted: the most
+  ergonomic (often economy-heavy) version first, then an alternate-heavy version for players not
+  yet comfortable with economy.
+
 ## Next
-- Finish topic 6, then topics 7–9 (cost terms per hand, timing), then the first build plan
-  (topics 1–6 + starter cost terms → one cheapest two-hand realisation for a hand-typed phrase).
+- Topics 1–6 decided. Next: starter cost terms → first build plan (topics 1–6 + starter terms →
+  one cheapest two-hand realisation for a hand-typed phrase); full cost review (topics 7–9)
+  with Jae against real output.
 
 ## Open questions
-- Topic 6 decisions 1–3 (above).
+_(none)_
