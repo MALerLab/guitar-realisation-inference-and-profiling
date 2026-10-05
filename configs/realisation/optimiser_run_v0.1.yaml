@@ -1,0 +1,30 @@
+# Optimiser run v0.1: the default guitar and search settings for a run.
+# Read by src/realisation/. A GP file's own tuning replaces the default tuning.
+version: "0.1"
+
+guitar:
+  # Open-string MIDI pitches, string 1 (thinnest) first; standard tuning E4 B3 G3 D3 A2 E2.
+  # A 7-string adds its low string at the end, e.g. B1 = 35.
+  tuning: [64, 59, 55, 50, 45, 40]
+  # Highest fret on the neck (physical limit; a note above it on every string is reported)
+  highest_fret: 24
+  # Vibrating string length in mm: 648 = 25.5" (fanned frets: future option)
+  scale_length_mm: 648.0
+
+search:
+  # How many of the cheapest realisations to return (plain k-best)
+  k_best: 5
+  # The search keeps k_best × this many paths, then drops paths whose tab (string, fret, stroke)
+  # repeats a cheaper one (they differ only in hand position)
+  k_search_multiplier: 4
+  # How many notes back the picking hand remembers its last picked note across a legato chain.
+  # Longer chains use the time to the note this many back (slightly overestimates the cost).
+  pick_memory_notes: 3
+
+# Enforced articulations (R1): true = the tab's mark is a fixed part of the music.
+# Bends can't be switched off yet (the parser doesn't keep the bend amount).
+articulations:
+  bend: true
+  legato: true         # hammer-on / pull-off marks
+  slide: true          # the note a slide lands on
+  left_hand_tap: true

@@ -31,15 +31,26 @@ picking:
   # A stroke with no picked stroke before it, when hard rule phrase_start_downstroke is off
   first_stroke: 1.0
 
-# Flat costs per note
+# Timing (R4): picking costs and legato = value × (reference_gap / time since the last picked note)
+timing:
+  reference_gap_seconds: 0.15  # 16th notes at 100 bpm: table values hold exactly as written here
+
+# Per-note costs; legato scales with time like the picking cases, the rest are flat
 legato: 1.1                  # hammer-on / pull-off on the same string; just above an easy pick
 hammer_on_from_nowhere: 5.0  # legato onto a new string or after a rest
 open_string_bend: 50.0       # bend on an open string (behind the nut); only when nothing else works
 
-# Fretting hand: weights for cost terms whose formulas are set at the timing topic
+# Fretting hand. Hand position = the fret where the index finger naturally sits; finger n's
+# natural spot = hand + n − 1 (fingers 1–4 = index … pinky). First guesses, to be tuned.
 fretting_hand:
-  left_shift: null       # hand moves along the neck: mm ÷ time available
-  fingers_stretch: null  # finger reach from its natural spot under the hand, in mm, every note
+  # Shift: the hand moves along the neck; × (reference_gap / time since the previous note).
+  # Steep per mm up to the knee, gentle per mm after it (Jae: costly up to ~3 frets, then
+  # roughly linear). At fret 5: 1 fret ≈ 29 mm, 3 frets ≈ 81 mm.
+  left_shift: 0.03          # cost per mm up to the knee
+  shift_knee_mm: 80.0       # ≈ 3 frets around fret 5
+  shift_beyond_knee: 0.005  # cost per mm past the knee
+  # Stretch: a finger's distance from its natural spot under the hand, in mm, every note
+  fingers_stretch: 0.02
 
 # How costs add up over a passage: each move's total ** exponent, then summed (1 = plain sum)
 adding_up:

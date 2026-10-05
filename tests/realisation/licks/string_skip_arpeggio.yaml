@@ -1,0 +1,17 @@
+# Wide arpeggio that invites string skips (Jae's skip observations) at 16ths.
+name: string-skip arpeggio (16ths)
+tempo_bpm: 110
+notes:
+  - [A2, 0.25]
+  - [E3, 0.25]
+  - [C4, 0.25]
+  - [E3, 0.25]
+  - [A2, 0.25]
+  - [E3, 0.25]
+  - [C4, 0.25]
+  - [E3, 0.25]
+  - [G2, 0.25]
+  - [D3, 0.25]
+  - [B3, 0.25]
+  - [D3, 0.25]
+  - [G2, 1.0]

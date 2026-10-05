@@ -1,0 +1,16 @@
+# Enforced articulations + a chord (null symbol) + a rest (phrase start).
+name: articulations, chord and rest
+tempo_bpm: 100
+notes:
+  - [A4, 0.25]
+  - [B4, 0.25, [legato]]
+  - [C5, 0.25]
+  - [D5, 0.25, [bend]]
+  - [[A3, E4], 0.5]
+  - [rest, 1.0]
+  - [E4, 0.25]
+  - [G4, 0.25, [slide]]
+  - [A4, 0.25]
+  - [C5, 0.25, [left_hand_tap]]
+  - [x, 0.25]
+  - [A4, 0.75]

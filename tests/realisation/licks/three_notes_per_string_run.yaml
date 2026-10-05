@@ -1,0 +1,21 @@
+# A minor scale run up two octaves in 16ths: 3-notes-per-string territory.
+name: A minor scale run (16ths)
+tempo_bpm: 120
+notes:
+  - [A2, 0.25]
+  - [B2, 0.25]
+  - [C3, 0.25]
+  - [D3, 0.25]
+  - [E3, 0.25]
+  - [F3, 0.25]
+  - [G3, 0.25]
+  - [A3, 0.25]
+  - [B3, 0.25]
+  - [C4, 0.25]
+  - [D4, 0.25]
+  - [E4, 0.25]
+  - [F4, 0.25]
+  - [G4, 0.25]
+  - [A4, 0.25]
+  - [B4, 0.25]
+  - [A4, 1.0]

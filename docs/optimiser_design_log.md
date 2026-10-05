@@ -410,15 +410,79 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
   `up_up_sweep`, `first_stroke_toward_move` / `first_stroke_against_move`,
   `against_crossing_*`, `against_skip_*`, `per_extra_skipped_string`.
 - `left_shift` and `fingers_stretch` are `null` until the timing topic sets their formulas.
+
+## 8. Timing (2026-10-05)
+- **Decision: picking cost = case value ÷ time since the last picked note** (shape (a), Hori
+  family). Jae's top-speed idea (shape (b): flat when slow, a wall near each case's top speed) is
+  kept for verification and tuning.
+  - Why (Jae): (b) built from his speeds would become "me-shaped" — his comfort as ground truth.
+    No technique favouritism applies to his own preferences too.
+  - Jae's observation: the down → down vs alternate gap is small when slow and large when fast
+    (16ths at 120 bpm is past his downpicking limit). (a) keeps the ratio fixed but the absolute
+    gap grows with speed: slow → fretting hand dominates; fast → picking hand dominates. (a) has no
+    wall; the squaring knob sharpens big costs; (b) tests the wall during tuning.
+- **Decision: reference tempo = 16th notes at 100 bpm (0.15 s)** — where the table values hold
+  exactly; config `timing.reference_gap_seconds`. Jae: a round number, and 16ths at 100 are
+  easier without stress than at 120. Learn what "cost 1.0" means on the fretting hand from there.
+- **Decision: legato scales with time too**, so it stays just above an easy pick at every tempo.
+  Its weight is decided after code, examples and tuning.
+- **Shift curve (Jae, 2026-10-05):** from fret 5, shifting beyond 2 frets is costly; 3 and 4 too;
+  then it stops getting much harder and grows roughly linearly with distance. Exact curve: test.
+  - Proposed v0: steep slope up to a knee (≈ 3 frets, stored in mm), gentle linear slope after,
+    all × the time multiplier. Knobs: `left_shift` (steep), knee mm, gentle weight. Rough guesses
+    until tuned.
+- **Idea, after data (Jae):** a slide and repeated downstrokes are uncomfortable for *different
+  reasons* → maybe one number per move isn't enough (something other than "add everything,
+  take the minimum"). Decide once there's data.
+- Jae (2026-10-05): rating abstract comparisons is getting vague → time to build and test.
+- **Decision: shift curve v0 approved** (steep to a ≈ 3-fret knee in mm, gentle linear after,
+  × time; rough guesses until tuned).
   - **Limitation (Layer 1):** misses purely mental boundaries, like the *Stratosphere* bar-4 case.
 - Re-scoring confirmed: preferences re-score the frozen set. Expected and wanted: the most
   ergonomic (often economy-heavy) version first, then an alternate-heavy version for players not
   yet comfortable with economy.
 
+## Build chunk 1 — built (2026-10-05)
+- Spec: `docs/optimiser_build_chunk1.md`. Code: `src/realisation/` (guitar_neck, note_input,
+  cost_terms, realisation_search, run_optimiser). Run:
+  `uv run python -m src.realisation.run_optimiser tests/realisation/licks/a_minor_arpeggio.yaml`
+  or `--gp <file> --track N --bars A-B`.
+- Added by Jae during planning: plain k-best (deduplicated by tab); starting tempo from GP files
+  (parser to-do #1, done).
+- Checked: 50 tests (incl. brute force: the search's top 3 = the true cheapest 3 tabs on a short
+  guitar); the search re-checks its total against the breakdown on every run; 5 test licks +
+  *Stratosphere* bars 1–2 (32 notes, 1.4 s).
+- Implementation choice: the finger is derived from the hand position (least stretch) instead of
+  being searched — exact for the starter terms, which don't price fingers individually.
+
+### Full intention vs current limitation (chunk 1)
+| topic | intention | chunk 1 does |
+|---|---|---|
+| phrase starts | real phrase finding (Layer 2) | rests ≥ 1 beat (bar lines: toggle, off) |
+| fingers | finger as its own choice once finger-specific costs exist (bend finger, finger order, rolls) | finger derived from hand position |
+| picking memory | exact time since the last pick | exact for legato chains ≤ 3 notes; longer chains overestimate the pick cost slightly |
+| several realisations | meaningful alternatives (R6) | plain k-best, duplicates by tab removed |
+| chords / dead notes | real support | null symbols; hands cross them for free |
+| articulations | every mark type | bend, hammer-on / pull-off, slide landings, left-hand tap; slide-ins and right-hand taps reported and ignored |
+| GP input | full song | one track, voice 0, staff 0; capo ignored (reported); starting tempo only |
+| endurance / streaks, silent strokes through short rests | modelled | not modelled |
+| hybrid picking, right-hand tapping | chunk 2 | — |
+
+### Findings from the first runs (for Jae's tuning)
+- **Legato beats easy picking.** A legato note gives the next pick double the time, so with
+  cost ÷ time, legato + pick (1.1 + 0.5) < pick + pick (1 + 1) at any tempo. Shows as pull-offs
+  on easy alternate runs, even slow quarter notes. Knob fix: legato > 1.5. Formula fix: the time
+  multiplier never drops below 1 (no discount for slow notes).
+- **Huge stretches beat shifts.** *Stratosphere*: index on 13 with pinky on 21 rather than moving
+  the hand. Stretch (0.02/mm, not time-scaled) is cheap next to shifting out and back.
+- **Same shape, any height = same cost.** Nothing prefers one area of the neck, so ties (e.g. the
+  arpeggio at frets 5–8 vs 14–17) are broken by order. The "drift" trap is open either way.
+- **Open strings are free for the fretting hand.** Scale run: an open string 2 inside a run on
+  string 3 (no finger, no stretch, hand stays).
+
 ## Next
-- Topics 1–6 decided. Next: starter cost terms → first build plan (topics 1–6 + starter terms →
-  one cheapest two-hand realisation for a hand-typed phrase); full cost review (topics 7–9)
-  with Jae against real output.
+- Jae: read the code, run the licks guitar in hand, tune knobs against the findings above.
+- Then: chunk 2 (hybrid picking + right-hand tapping) and / or the Layer 1 experiment → Layer 2.
 
 ## Open questions
 _(none)_
