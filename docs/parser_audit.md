@@ -244,7 +244,7 @@ What that JSON looks like 🧪:
 
 | # | to-do | why | priority |
 |---|---|---|---|
-| 1 | starting tempo (bpm) per song | R4 timing needs seconds, not just ticks | first build chunk |
+| 1 | ~~starting tempo (bpm) per song~~ — done 2026-10-05: `parse_gp_file_with_tempo` | R4 timing needs seconds, not just ticks | done |
 | 2 | tempo changes within a song | correct seconds after a tempo change | later |
 | 3 | bend amount (semitones), per bent note | a bend switched off must become a fretted note at the bent-to pitch; the amount also decides the bending finger (index alone for small bends; ring / pinky with support for a full bend) | later; until then bends can't be switched off |
 | 4 | GP capo convention: fret relative to capo vs absolute; partial capo in gp3–5 | open question since the audit (capo not a requirement for now, R11) | later |

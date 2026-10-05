@@ -1,5 +1,6 @@
 // Read one Guitar Pro file with alphaTab and print one JSON line per note to stdout.
 // Values are alphaTab's own, unconverted (string 1 = lowest, enums by name, capo-inclusive pitch).
+// Every line also carries the song's starting tempo (bpm), the same on every line.
 // All project conventions are applied on the Python side, in src/data/gp_parser.py.
 //
 // Usage: node src/data/alphatab_dump.mjs <path-to-gp-file>
@@ -101,7 +102,7 @@ for (const track of score.tracks) {
                 for (const beat of voice.beats) {
                     const beatRow = beatFields(bar, voice, beat);
                     for (const note of beat.notes) {
-                        lines.push(JSON.stringify({ ...staffRow, ...beatRow, ...noteFields(note) }));
+                        lines.push(JSON.stringify({ startingTempo: score.tempo, ...staffRow, ...beatRow, ...noteFields(note) }));
                     }
                 }
             }

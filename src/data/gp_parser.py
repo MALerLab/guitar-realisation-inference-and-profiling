@@ -170,9 +170,27 @@ def parse_gp_file(gp_path: Path, config: GpParserConfig) -> list[NoteEvent]:
         gp_path: Path to a .gp3, .gp4, .gp5, .gpx or .gp file.
         config: Loaded parser config.
     """
+    notes, _ = parse_gp_file_with_tempo(gp_path, config)
+    return notes
+
+
+def parse_gp_file_with_tempo(gp_path: Path, config: GpParserConfig) -> tuple[list[NoteEvent], float | None]:
+    """Parse one Guitar Pro file into NoteEvents plus the song's starting tempo.
+
+    Tempo changes later in the song are not read yet (parser to-do, docs/parser_audit.md).
+
+    Args:
+        gp_path: Path to a .gp3, .gp4, .gp5, .gpx or .gp file.
+        config: Loaded parser config.
+
+    Returns:
+        The NoteEvents (as parse_gp_file) and the starting tempo in bpm, or None for a file
+        with no notes.
+    """
     raw_rows = run_alphatab_dump(gp_path, config)
+    starting_tempo_bpm = float(raw_rows[0]["startingTempo"]) if raw_rows else None
     stringed_rows = [row for row in raw_rows if is_stringed(row)]
-    return merge_tied_notes(stringed_rows)
+    return merge_tied_notes(stringed_rows), starting_tempo_bpm
 
 
 def is_stringed(row: dict[str, Any]) -> bool:
