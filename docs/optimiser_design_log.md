@@ -225,7 +225,7 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
 - Set up regardless (Jae: "sounds good", 2026-10-04):
   - Cost term = one small named function of (previous state, current state, time between the
     notes) → a number, tagged fretting hand or picking hand.
-  - Every term's value stored per note pair (R10); weights in `configs/realisation/`, never in code.
+  - Every term's value stored per note pair (R10); weights in `configs/optimiser/`, never in code.
 - **Jae on adding up (2026-10-05, provisional):** the real question = 5 moves × 10 vs
   3 moves × 9 + one mega move, same total. "It depends" — mostly on what the mega move is
   (→ individual term costs). Usual go-to: avoid the mega move. Subject to tuning.
@@ -402,7 +402,7 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
     odd groupings crossing bar lines.
 
 ### Starter numbers (2026-10-05)
-- **Values live only in `configs/realisation/optimiser_cost_v0.1.yaml`** (one source of truth);
+- **Values live only in `configs/optimiser/optimiser_cost_v0.1.yaml`** (one source of truth);
   first guesses following every order above; Jae tunes them once tabs are generated.
 - **Decision: B2 (down on 3 → down on 4) very slightly cheaper than A2 (up on 4 → up on 3)** —
   follows the repeated-downstroke rule, and matches how it feels on the guitar.
@@ -443,9 +443,9 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
   yet comfortable with economy.
 
 ## Build chunk 1 — built (2026-10-05)
-- Spec: `docs/optimiser_build_chunk1.md`. Code: `src/realisation/` (guitar_neck, note_input,
+- Spec: `docs/optimiser_build_chunk1.md`. Code: `src/optimiser/` (guitar_neck, note_input,
   cost_terms, realisation_search, run_optimiser). Run:
-  `uv run python -m src.realisation.run_optimiser tests/realisation/licks/a_minor_arpeggio.yaml`
+  `uv run python -m src.optimiser.run_optimiser tests/optimiser/licks/a_minor_arpeggio.yaml`
   or `--gp <file> --track N --bars A-B`.
 - Added by Jae during planning: plain k-best (deduplicated by tab); starting tempo from GP files
   (parser to-do #1, done).

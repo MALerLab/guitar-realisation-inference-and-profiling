@@ -14,9 +14,8 @@ from pathlib import Path
 import yaml
 
 from src.data.gp_parser import NoteEvent, load_gp_parser_config, parse_gp_file_with_tempo
-from src.realisation.guitar_neck import GuitarSetup, candidate_positions
+from src.optimiser.guitar_neck import GuitarSetup, candidate_positions
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 TICKS_PER_QUARTER = 960
 ARTICULATION_KINDS = ("bend", "legato", "slide", "left_hand_tap")
 # Articulations that force the note's stroke to none (no pick)
@@ -81,7 +80,7 @@ def load_articulation_switches(run_config_path: Path) -> dict[str, bool]:
     """Read which articulation types are enforced, refusing bends switched off.
 
     Args:
-        run_config_path: Path to a configs/realisation/optimiser_run_v*.yaml file.
+        run_config_path: Path to a configs/optimiser/optimiser_run_v*.yaml file.
     """
     switches = yaml.safe_load(Path(run_config_path).read_text())["articulations"]
     if set(switches) != set(ARTICULATION_KINDS):
@@ -117,7 +116,7 @@ def ticks_to_seconds(ticks: float, tempo_bpm: float) -> float:
 
 def load_lick(lick_path: Path, default_guitar: GuitarSetup, switches: dict[str, bool],
               tempo_override_bpm: float | None = None) -> Passage:
-    """Read a hand-typed lick file (tests/realisation/licks/*.yaml).
+    """Read a hand-typed lick file (tests/optimiser/licks/*.yaml).
 
     Each note entry is [pitch, beats] or [pitch, beats, [articulations]]. pitch is a note name
     ("A3"), "rest", "x" (dead note), or a list of names (chord). beats is the length in quarter
@@ -224,7 +223,8 @@ def mark_unreachable_notes(passage: Passage) -> Passage:
 
 def load_gp_passage(gp_path: Path, track_index: int, first_bar: int, last_bar: int,
                     default_guitar: GuitarSetup, switches: dict[str, bool],
-                    voice_index: int = 0, tempo_override_bpm: float | None = None) -> Passage:
+                    gp_parser_config_path: Path, voice_index: int = 0,
+                    tempo_override_bpm: float | None = None) -> Passage:
     """Cut a passage out of a GP file: one track, one voice, a bar range (1-based, inclusive).
 
     Uses the file's tuning and starting tempo. Notes starting together become one null symbol
@@ -237,10 +237,11 @@ def load_gp_passage(gp_path: Path, track_index: int, first_bar: int, last_bar: i
         last_bar: Last bar, 1-based, inclusive.
         default_guitar: Highest fret and scale length come from here.
         switches: Which articulation types are enforced.
+        gp_parser_config_path: Path to the GP parser config (the run config's gp_parser_config).
         voice_index: Voice within the bars, from 0.
         tempo_override_bpm: Replaces the file's starting tempo if given.
     """
-    parser_config = load_gp_parser_config(REPO_ROOT / "configs/data/gp_parser_v0.1.yaml")
+    parser_config = load_gp_parser_config(gp_parser_config_path)
     events, file_tempo_bpm = parse_gp_file_with_tempo(Path(gp_path), parser_config)
     tempo_bpm = float(tempo_override_bpm or file_tempo_bpm or 120.0)
     in_range = [event for event in events

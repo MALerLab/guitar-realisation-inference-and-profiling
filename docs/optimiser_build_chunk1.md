@@ -1,7 +1,7 @@
 # Optimiser build — chunk 1 spec (Layer 1, pick only)
 
 What chunk 1 builds, distilled from `docs/optimiser_design_log.md` (topics 1–8). The log holds
-the reasons; `configs/realisation/optimiser_cost_v0.1.yaml` holds every number. Conflict →
+the reasons; `configs/optimiser/optimiser_cost_v0.1.yaml` holds every number. Conflict →
 requirements doc > design log > this spec.
 
 **Goal:** a hand-typed lick (or a passage cut from a GP file) → the single cheapest two-hand
@@ -56,15 +56,16 @@ per-term cost breakdown, so Jae can judge it guitar in hand.
 ## Files
 | file | holds |
 |---|---|
-| `src/realisation/guitar_neck.py` | guitar setup (tuning, strings, highest fret, scale length), fret positions in mm, candidate positions per note |
-| `src/realisation/note_input.py` | input contract: notes, null symbols, enforced articulations, starting tempo; from hand-typed licks or GP |
-| `src/realisation/cost_terms.py` | one named function per cost term + breakdown |
-| `src/realisation/realisation_search.py` | state space + exact search + k-best |
-| `src/realisation/run_optimiser.py` | `uv run python -m src.realisation.run_optimiser <lick>`; ASCII tab + breakdown printout |
-| `configs/realisation/optimiser_cost_v0.1.yaml` | all cost knobs (exists; shift / stretch values filled in) |
-| `configs/realisation/optimiser_run_v0.1.yaml` | default guitar setup (standard tuning, 6 strings, 24 frets, 648 mm) + k |
-| `tests/realisation/licks/*.yaml` | generic hand-typed test licks (tracked; no song excerpts) |
-| `tests/realisation/test_*.py` | behaviour tests, one file per source file |
+| `src/optimiser/guitar_neck.py` | guitar setup (tuning, strings, highest fret, scale length), fret positions in mm, candidate positions per note |
+| `src/optimiser/note_input.py` | input contract: notes, null symbols, enforced articulations, starting tempo; from hand-typed licks or GP |
+| `src/optimiser/cost_terms.py` | one named function per cost term + breakdown |
+| `src/optimiser/realisation_search.py` | state space + exact search + k-best |
+| `src/optimiser/run_optimiser.py` | `uv run python -m src.optimiser.run_optimiser <lick>`; ASCII tab + breakdown printout |
+| `configs/optimiser/optimiser_cost_v0.1.yaml` | all cost knobs (exists; shift / stretch values filled in) |
+| `configs/optimiser/optimiser_run_v0.1.yaml` | the whole run: k, articulation switches, pointers to the guitar setup, cost knobs and GP parser config |
+| `configs/optimiser/guitar_setup/default.yaml` | default guitar (standard tuning, 6 strings, 24 frets, 648 mm); a GP file's or lick's tuning replaces its tuning |
+| `tests/optimiser/licks/*.yaml` | generic hand-typed test licks (tracked; no song excerpts) |
+| `tests/optimiser/test_*.py` | behaviour tests, one file per source file |
 
 Song excerpts (benchmark songs) are cut from local GP files at run time and never committed
 (public repo).

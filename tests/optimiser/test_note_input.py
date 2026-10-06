@@ -6,14 +6,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.realisation.guitar_neck import load_guitar_setup
-from src.realisation.note_input import (
+from src.optimiser.guitar_neck import load_guitar_setup
+from src.optimiser.note_input import (
     load_articulation_switches, load_gp_passage, load_lick, note_name_to_pitch,
 )
+from src.optimiser.run_optimiser import RUN_CONFIG, load_run_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUN_CONFIG = REPO_ROOT / "configs/realisation/optimiser_run_v0.1.yaml"
-GUITAR = load_guitar_setup(RUN_CONFIG)
+RUN = load_run_config(RUN_CONFIG)
+GUITAR = load_guitar_setup(RUN["guitar_setup"])
 SWITCHES = load_articulation_switches(RUN_CONFIG)
 ALPHATAB_GP5 = REPO_ROOT / "externals/parsers/alphaTab/packages/alphatab/test-data/guitarpro5"
 
@@ -76,17 +77,17 @@ def test_lick_tuning_and_tempo_override(tmp_path):
 
 def test_gp_passage_reads_tempo_and_hammer_on_marks():
     # Bar 1 holds hammer-ons on chords (→ null symbols); bar 2 ends with a single-note hammer-on
-    passage = load_gp_passage(ALPHATAB_GP5 / "hammer.gp5", 0, 1, 2, GUITAR, SWITCHES)
+    passage = load_gp_passage(ALPHATAB_GP5 / "hammer.gp5", 0, 1, 2, GUITAR, SWITCHES, RUN["gp_parser_config"])
     assert passage.tempo_bpm > 0
     assert any(note.null_reason == "chord" for note in passage.notes)
     assert "legato" in passage.notes[-1].articulations
 
 
 def test_gp_passage_reads_slide_landings():
-    passage = load_gp_passage(ALPHATAB_GP5 / "slides.gp5", 0, 1, 2, GUITAR, SWITCHES)
+    passage = load_gp_passage(ALPHATAB_GP5 / "slides.gp5", 0, 1, 2, GUITAR, SWITCHES, RUN["gp_parser_config"])
     assert any("slide" in note.articulations for note in passage.notes)
 
 
 def test_gp_passage_reads_bends():
-    passage = load_gp_passage(ALPHATAB_GP5 / "bends.gp5", 0, 1, 1, GUITAR, SWITCHES)
+    passage = load_gp_passage(ALPHATAB_GP5 / "bends.gp5", 0, 1, 1, GUITAR, SWITCHES, RUN["gp_parser_config"])
     assert any("bend" in note.articulations for note in passage.notes)

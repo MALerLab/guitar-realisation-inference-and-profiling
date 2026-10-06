@@ -1,5 +1,5 @@
 # Optimiser cost v0.1: starter cost weights for the two-hand search (Layer 1, note-level).
-# Read by src/realisation/ (not built yet). Decisions + reasons: docs/optimiser_design_log.md.
+# Picked by the run config's `cost_config` pointer. Decisions + reasons: docs/optimiser_design_log.md.
 # Every value is a knob: tune values first, change a formula only if knobs can't fix it.
 # First guesses (2026-10-05), to be tuned by Jae against real output and docs/benchmark_songs.md.
 version: "0.1"

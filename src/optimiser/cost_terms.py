@@ -3,7 +3,7 @@
 A move = going from one note's state to the next. Its terms are added, then raised to
 `big_move_exponent` (big moves punished extra), then summed over the passage. Every term is
 tagged with the hand it belongs to, so the breakdown can be split by hand (R10).
-Values: configs/realisation/optimiser_cost_v0.1.yaml. Reasons: docs/optimiser_design_log.md.
+Values: configs/optimiser/optimiser_cost_v0.1.yaml. Reasons: docs/optimiser_design_log.md.
 
 Strings: 1 = thinnest. "Toward string 1" is the direction a downstroke travels.
 Fingers: 1–4 = index … pinky; 0 = open string (no finger).
@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from src.realisation.guitar_neck import distance_mm
+from src.optimiser.guitar_neck import distance_mm
 
 DOWN, UP, NONE = "down", "up", "none"
 TERM_HAND = {
@@ -30,7 +30,7 @@ TERM_HAND = {
 
 @dataclass(frozen=True)
 class CostConfig:
-    """All cost knobs, loaded from configs/realisation/optimiser_cost_v*.yaml.
+    """All cost knobs, loaded from configs/optimiser/optimiser_cost_v*.yaml.
 
     Args:
         picking: The picking table: {"same_string": {...}, "neighbouring_strings": {...},
@@ -68,7 +68,7 @@ def load_cost_config(config_path: Path) -> CostConfig:
     """Load the cost knobs.
 
     Args:
-        config_path: Path to a configs/realisation/optimiser_cost_v*.yaml file.
+        config_path: Path to a configs/optimiser/optimiser_cost_v*.yaml file.
     """
     raw = yaml.safe_load(Path(config_path).read_text())
     fretting = raw["fretting_hand"]

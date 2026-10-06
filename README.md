@@ -12,10 +12,10 @@ Project facts → [PROJECT.md](PROJECT.md).
 ### Optimiser: cheapest realisations of a passage
 ```bash
 # A hand-typed lick (top 3 realisations)
-uv run python -m src.realisation.run_optimiser tests/realisation/licks/a_minor_arpeggio.yaml --k 3
+uv run python -m src.optimiser.run_optimiser tests/optimiser/licks/a_minor_arpeggio.yaml --k 3
 
 # A passage from a GP file: track 0, bars 1–2 (bars as Guitar Pro numbers them)
-uv run python -m src.realisation.run_optimiser \
+uv run python -m src.optimiser.run_optimiser \
   --gp "$HOME/storage/grip/datasets/dadagp/DadaGP-v1.1/S/Stratovarius/Stratovarius - Stratosphere (2).gp3" \
   --track 0 --bars 1-2 --k 3
 ```
@@ -25,9 +25,10 @@ uv run python -m src.realisation.run_optimiser \
   hammer-on / pull-off, `s` slide, `t` left-hand tap, `H` hammer-on from nowhere), `f` finger
   (1–4 = index … pinky, 0 = open), `h` hand position (fret under the index finger).
   `*` = null symbol (chord, dead note, or a note this guitar can't reach).
-- Knobs: `configs/realisation/optimiser_cost_v0.1.yaml` (costs) and
-  `configs/realisation/optimiser_run_v0.1.yaml` (guitar, k, articulation switches).
-- Lick files: `tests/realisation/licks/*.yaml`. Each note is `[pitch, beats]` or
+- Knobs: `configs/optimiser/optimiser_run_v0.1.yaml` holds the whole run: k, articulation
+  switches, and pointers to the guitar (`configs/optimiser/guitar_setup/default.yaml`), the cost
+  knobs (`configs/optimiser/optimiser_cost_v0.1.yaml`) and the GP parser config.
+- Lick files: `tests/optimiser/licks/*.yaml`. Each note is `[pitch, beats]` or
   `[pitch, beats, [articulations]]`; pitch = a note name (`A3`, `C#4`), `rest`, `x` (dead note) or
   a list (chord); beats in quarter notes (`0.25` = a 16th); articulations: `bend`, `legato`,
   `slide`, `left_hand_tap`.

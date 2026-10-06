@@ -35,7 +35,7 @@
 - Check: `git remote -v` → 1 fetch line, 2 push lines.
 
 ## Layout rules
-- `src/` subpackages: `data/` · `realisation/` (the optimiser; `uv run python -m src.realisation.run_optimiser <lick.yaml>`) · `technique/` · `evaluation/` · `gp_viewer/`
+- `src/` subpackages: `data/` · `optimiser/` (searches realisations; `uv run python -m src.optimiser.run_optimiser <lick.yaml>`) · `technique/` · `evaluation/` · `gp_viewer/`
   (dev tool: browse GP files in a browser; `uv run python -m src.gp_viewer.server`).
 - `configs/<subpackage>/` mirrors `src/<subpackage>/` — no hardcoded parameters in `src/`.
   `configs/experiments/` is added when the first experiment exists.
@@ -70,7 +70,7 @@
     string crossings, legato where it changes playability).
   - No technique favouritism: generation never drops or ranks down a realisation for suiting
     one technique badly. Technique compatibility is computed after generation.
-  - `src/realisation/` never imports from `src/technique/` or `src/evaluation/`.
+  - `src/optimiser/` never imports from `src/technique/` or `src/evaluation/`.
   - The source tab's fingering and pickstroke marks never enter generation; its articulation
     marks (bends, hammer-ons…) enter only where switched to enforced (R1); compatibility scores
     never steer generation.

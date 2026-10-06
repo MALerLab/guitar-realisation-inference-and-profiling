@@ -44,12 +44,12 @@ class Position:
 
 
 def load_guitar_setup(config_path: Path) -> GuitarSetup:
-    """Load the default guitar from a configs/realisation/optimiser_run_v*.yaml file.
+    """Load a guitar from a configs/optimiser/guitar_setup/*.yaml file.
 
     Args:
-        config_path: Path to the run config.
+        config_path: Path to the guitar setup file.
     """
-    guitar = yaml.safe_load(Path(config_path).read_text())["guitar"]
+    guitar = yaml.safe_load(Path(config_path).read_text())
     return GuitarSetup(
         tuning=tuple(int(pitch) for pitch in guitar["tuning"]),
         highest_fret=int(guitar["highest_fret"]),

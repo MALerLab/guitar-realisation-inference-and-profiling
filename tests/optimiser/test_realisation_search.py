@@ -2,20 +2,20 @@
 
 import itertools
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 
-from src.realisation.cost_terms import DOWN, NONE, UP, load_cost_config
-from src.realisation.guitar_neck import load_guitar_setup
-from src.realisation.note_input import Note, Passage
-from src.realisation.realisation_search import (
+from src.optimiser.cost_terms import DOWN, NONE, UP, load_cost_config
+from src.optimiser.guitar_neck import load_guitar_setup
+from src.optimiser.note_input import Note, Passage
+from src.optimiser.realisation_search import (
     build_note_contexts, score_path, search_realisations, slide_allowed, stroke_allowed,
 )
+from src.optimiser.run_optimiser import RUN_CONFIG, load_run_config
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIG = load_cost_config(REPO_ROOT / "configs/realisation/optimiser_cost_v0.1.yaml")
-GUITAR = load_guitar_setup(REPO_ROOT / "configs/realisation/optimiser_run_v0.1.yaml")
+RUN = load_run_config(RUN_CONFIG)
+CONFIG = load_cost_config(RUN["cost_config"])
+GUITAR = load_guitar_setup(RUN["guitar_setup"])
 SIXTEENTH = 0.15  # seconds at 100 bpm
 MEMORY = 3
 

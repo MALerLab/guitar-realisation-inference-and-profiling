@@ -1,8 +1,8 @@
 """Run the optimiser on a lick or a GP passage and print the realisations as tabs.
 
 Usage:
-    uv run python -m src.realisation.run_optimiser tests/realisation/licks/a_minor_arpeggio.yaml
-    uv run python -m src.realisation.run_optimiser --gp song.gp5 --track 0 --bars 5-8
+    uv run python -m src.optimiser.run_optimiser tests/optimiser/licks/a_minor_arpeggio.yaml
+    uv run python -m src.optimiser.run_optimiser --gp song.gp5 --track 0 --bars 5-8
 Options: --k (how many realisations), --tempo (override bpm), --voice, --breakdown (all moves).
 
 Tab rows: strings (1 = thinnest, on top), then stroke (D down, U up, h hammer-on, p pull-off,
@@ -16,15 +16,28 @@ from pathlib import Path
 
 import yaml
 
-from src.realisation.cost_terms import NONE, TERM_HAND, load_cost_config
-from src.realisation.guitar_neck import load_guitar_setup
-from src.realisation.note_input import Passage, load_articulation_switches, load_gp_passage, load_lick
-from src.realisation.realisation_search import Realisation, search_realisations
+from src.optimiser.cost_terms import NONE, TERM_HAND, load_cost_config
+from src.optimiser.guitar_neck import load_guitar_setup
+from src.optimiser.note_input import Passage, load_articulation_switches, load_gp_passage, load_lick
+from src.optimiser.realisation_search import Realisation, search_realisations
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-COST_CONFIG = REPO_ROOT / "configs/realisation/optimiser_cost_v0.1.yaml"
-RUN_CONFIG = REPO_ROOT / "configs/realisation/optimiser_run_v0.1.yaml"
+RUN_CONFIG = REPO_ROOT / "configs/optimiser/optimiser_run_v0.1.yaml"
+# Run-config fields that point at other config files (paths from the repo root)
+CONFIG_POINTERS = ("guitar_setup", "cost_config", "gp_parser_config")
 STROKE_LETTERS = {"down": "D", "up": "U"}
+
+
+def load_run_config(run_config_path: Path) -> dict:
+    """Read a run config, turning its pointers into absolute paths.
+
+    Args:
+        run_config_path: Path to a configs/optimiser/optimiser_run_v*.yaml file.
+    """
+    run_config = yaml.safe_load(Path(run_config_path).read_text())
+    for pointer in CONFIG_POINTERS:
+        run_config[pointer] = REPO_ROOT / run_config[pointer]
+    return run_config
 
 
 def stroke_letter(realisation: Realisation, passage: Passage, index: int) -> str:
@@ -124,22 +137,23 @@ def main() -> None:
     parser.add_argument("--breakdown", action="store_true", help="print every move of every realisation")
     args = parser.parse_args()
 
-    run_config = yaml.safe_load(RUN_CONFIG.read_text())["search"]
-    guitar = load_guitar_setup(RUN_CONFIG)
+    run_config = load_run_config(RUN_CONFIG)
+    search = run_config["search"]
+    guitar = load_guitar_setup(run_config["guitar_setup"])
     switches = load_articulation_switches(RUN_CONFIG)
-    cost_config = load_cost_config(COST_CONFIG)
+    cost_config = load_cost_config(run_config["cost_config"])
     if args.gp:
         first_bar, last_bar = (int(bar) for bar in args.bars.split("-"))
         passage = load_gp_passage(Path(args.gp), args.track, first_bar, last_bar, guitar, switches,
-                                  args.voice, args.tempo)
+                                  run_config["gp_parser_config"], args.voice, args.tempo)
     elif args.lick:
         passage = load_lick(Path(args.lick), guitar, switches, args.tempo)
     else:
         parser.error("give a lick file or --gp")
 
     started = time.perf_counter()
-    realisations = search_realisations(passage, cost_config, args.k or run_config["k_best"],
-                                       run_config["k_search_multiplier"], run_config["pick_memory_notes"])
+    realisations = search_realisations(passage, cost_config, args.k or search["k_best"],
+                                       search["k_search_multiplier"], search["pick_memory_notes"])
     seconds = time.perf_counter() - started
 
     print(f"== {passage.name} — {passage.tempo_bpm:g} bpm, {sum(not n.is_null for n in passage.notes)} notes, "

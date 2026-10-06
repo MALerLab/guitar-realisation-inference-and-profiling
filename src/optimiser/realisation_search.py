@@ -18,12 +18,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from src.realisation.cost_terms import (
+from src.optimiser.cost_terms import (
     DOWN, NONE, UP, CostConfig, PickMemory, add_up_move, natural_finger, open_string_bend_cost,
     picking_hand_terms, shift_cost, stretch_cost,
 )
-from src.realisation.guitar_neck import Position, candidate_positions
-from src.realisation.note_input import NO_PICK_ARTICULATIONS, Passage
+from src.optimiser.guitar_neck import Position, candidate_positions
+from src.optimiser.note_input import NO_PICK_ARTICULATIONS, Passage
 
 
 @dataclass(frozen=True)

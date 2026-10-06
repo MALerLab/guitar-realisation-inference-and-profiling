@@ -1,15 +1,11 @@
-# Optimiser run v0.1: the default guitar and search settings for a run.
-# Read by src/realisation/. A GP file's own tuning replaces the default tuning.
+# Optimiser run v0.1: everything one run uses, in one file. Read by src/optimiser/run_optimiser.py.
+# The three pointers name other config files (paths from the repo root); the rest are settings.
 version: "0.1"
 
-guitar:
-  # Open-string MIDI pitches, string 1 (thinnest) first; standard tuning E4 B3 G3 D3 A2 E2.
-  # A 7-string adds its low string at the end, e.g. B1 = 35.
-  tuning: [64, 59, 55, 50, 45, 40]
-  # Highest fret on the neck (physical limit; a note above it on every string is reported)
-  highest_fret: 24
-  # Vibrating string length in mm: 648 = 25.5" (fanned frets: future option)
-  scale_length_mm: 648.0
+# Which guitar, cost knobs and GP parser this run uses
+guitar_setup: configs/optimiser/guitar_setup/default.yaml
+cost_config: configs/optimiser/optimiser_cost_v0.1.yaml
+gp_parser_config: configs/data/gp_parser_v0.1.yaml
 
 search:
   # How many of the cheapest realisations to return (plain k-best)

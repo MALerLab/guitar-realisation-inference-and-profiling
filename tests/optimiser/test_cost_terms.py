@@ -1,16 +1,15 @@
 """Behaviour of the cost terms: the picking table cases, timing, shift and stretch."""
 
-from pathlib import Path
 
 import pytest
 
-from src.realisation.cost_terms import (
+from src.optimiser.cost_terms import (
     DOWN, NONE, UP, PickMemory, add_up_move, load_cost_config, picking_case, picking_hand_terms,
     shift_cost, stretch_cost, time_multiplier,
 )
+from src.optimiser.run_optimiser import RUN_CONFIG, load_run_config
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIG = load_cost_config(REPO_ROOT / "configs/realisation/optimiser_cost_v0.1.yaml")
+CONFIG = load_cost_config(load_run_config(RUN_CONFIG)["cost_config"])
 SCALE = 648.0
 
 

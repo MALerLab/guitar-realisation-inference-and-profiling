@@ -1,20 +1,19 @@
 """Behaviour of the guitar model: fret distances in mm and where each pitch can be played."""
 
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 
-from src.realisation.guitar_neck import (
+from src.optimiser.guitar_neck import (
     Position,
     candidate_positions,
     distance_mm,
     fret_position_mm,
     load_guitar_setup,
 )
+from src.optimiser.run_optimiser import RUN_CONFIG, load_run_config
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-STANDARD = load_guitar_setup(REPO_ROOT / "configs/realisation/optimiser_run_v0.1.yaml")
+STANDARD = load_guitar_setup(load_run_config(RUN_CONFIG)["guitar_setup"])
 
 
 def test_fret_12_is_half_the_scale_length():
