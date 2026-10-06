@@ -7,6 +7,11 @@ guitar_setup: configs/optimiser/guitar_setup/default.yaml
 cost_config: configs/optimiser/optimiser_cost_v0.1.yaml
 gp_parser_config: configs/data/gp_parser_v0.1.yaml
 
+output:
+  # Where `run_optimiser.py --save` writes one JSON file per run (path from the repo root).
+  # A link to ~/storage/grip/optimiser_runs/ made by setup_worktree.sh: shared by every worktree, off git.
+  runs_folder: data/optimiser_runs
+
 search:
   # How many of the cheapest realisations to return (plain k-best)
   k_best: 5

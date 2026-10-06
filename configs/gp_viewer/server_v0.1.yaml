@@ -13,6 +13,8 @@ paths:
   # Track list shown in the page; song-level columns are joined in on `path`
   tracks_manifest: manifests/dadagp_tracks.parquet
   songs_manifest: manifests/dadagp_songs.parquet
+  # Optimiser run files (run_optimiser.py --save); a link to ~/storage/grip/optimiser_runs/
+  runs_folder: data/optimiser_runs
   # alphaTab's browser build, notation font and soundfont (installed by `uv run npm ci`)
   alphatab_dist: node_modules/@coderline/alphatab/dist
 

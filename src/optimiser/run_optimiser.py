@@ -1,9 +1,11 @@
-"""Run the optimiser on a lick or a GP passage and print the realisations as tabs.
+"""Run the optimiser on a lick or a GP passage, print the realisations as tabs, optionally save as JSON.
 
 Usage:
     uv run python -m src.optimiser.run_optimiser tests/optimiser/licks/a_minor_arpeggio.yaml
     uv run python -m src.optimiser.run_optimiser --gp song.gp5 --track 0 --bars 5-8
-Options: --k (how many realisations), --tempo (override bpm), --voice, --breakdown (all moves).
+Options: --k (how many realisations), --tempo (override bpm), --tuning-shift (retune every string
+by N semitones, pitches kept; e.g. -1 for a song in Eb saved as E standard), --voice, --breakdown (all moves),
+--save (write the run as JSON to the run config's runs folder), --comment (added to the file name).
 
 Tab rows: strings (1 = thinnest, on top), then stroke (D down, U up, h hammer-on, p pull-off,
 s slide, t left-hand tap, H hammer-on from nowhere), finger (1–4 = index … pinky, 0 = open),
@@ -11,7 +13,11 @@ hand (fret where the index finger naturally sits). "*" = null symbol (chord / de
 """
 
 import argparse
+import json
+import re
 import time
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -26,6 +32,8 @@ RUN_CONFIG = REPO_ROOT / "configs/optimiser/optimiser_run_v0.1.yaml"
 # Run-config fields that point at other config files (paths from the repo root)
 CONFIG_POINTERS = ("guitar_setup", "cost_config", "gp_parser_config")
 STROKE_LETTERS = {"down": "D", "up": "U"}
+# Format tag + version written into every run file (the gp_viewer checks it)
+RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "0.1"}
 
 
 def load_run_config(run_config_path: Path) -> dict:
@@ -40,18 +48,17 @@ def load_run_config(run_config_path: Path) -> dict:
     return run_config
 
 
-def stroke_letter(realisation: Realisation, passage: Passage, index: int) -> str:
+def stroke_letter(realisation: Realisation, index: int) -> str:
     """The stroke row's letter for one note.
 
     Args:
-        realisation: The realisation.
-        passage: The passage (articulations).
-        index: Index in passage.notes.
+        realisation: The realisation (its passage gives the articulations).
+        index: Index in realisation.passage.notes.
     """
     choice = realisation.choices[index]
     if choice.stroke != NONE:
         return STROKE_LETTERS[choice.stroke]
-    articulations = passage.notes[index].articulations
+    articulations = realisation.passage.notes[index].articulations
     if "slide" in articulations:
         return "s"
     if "left_hand_tap" in articulations:
@@ -63,14 +70,13 @@ def stroke_letter(realisation: Realisation, passage: Passage, index: int) -> str
     return "h" if choice.position.fret > previous.position.fret else "p"
 
 
-def render_tab(realisation: Realisation, passage: Passage) -> str:
+def render_tab(realisation: Realisation) -> str:
     """ASCII tab with stroke, finger and hand rows.
 
     Args:
         realisation: The realisation.
-        passage: The passage.
     """
-    string_count = passage.guitar.string_count
+    string_count = realisation.passage.guitar.string_count
     rows = {name: [] for name in [*range(1, string_count + 1), "stroke", "finger", "hand"]}
     for index, choice in enumerate(realisation.choices):
         if choice.position is None:
@@ -79,7 +85,7 @@ def render_tab(realisation: Realisation, passage: Passage) -> str:
         else:
             cells = {string: "" for string in range(1, string_count + 1)}
             cells[choice.position.string] = str(choice.position.fret)
-            cells.update(stroke=stroke_letter(realisation, passage, index),
+            cells.update(stroke=stroke_letter(realisation, index),
                          finger=str(choice.finger), hand=str(choice.hand))
         width = max(len(text) for text in cells.values()) + 1
         for name, text in cells.items():
@@ -90,12 +96,11 @@ def render_tab(realisation: Realisation, passage: Passage) -> str:
     return "\n".join(lines)
 
 
-def render_breakdown(realisation: Realisation, passage: Passage) -> str:
+def render_breakdown(realisation: Realisation) -> str:
     """One line per move: picking case, every term, total and cost; then totals per hand.
 
     Args:
         realisation: The realisation.
-        passage: The passage.
     """
     term_names = list(TERM_HAND)
     header = f"{'note':>4} {'str':>3} {'fret':>4} {'case':<44}" + "".join(f"{n[:9]:>10}" for n in term_names)
@@ -124,6 +129,86 @@ def differing_notes(realisation: Realisation, best: Realisation) -> list[int]:
     return [index + 1 for index, (a, b) in enumerate(zip(realisation.tab_key(), best.tab_key())) if a != b]
 
 
+def passage_to_dict(passage: Passage) -> dict:
+    """The passage as plain JSON-ready data: guitar, tempo, report and every note.
+
+    Args:
+        passage: The passage.
+    """
+    notes = []
+    for index, note in enumerate(passage.notes):
+        note_fields = asdict(note)
+        note_fields["articulations"] = sorted(note.articulations)
+        notes.append({"passage_index": index, **note_fields})
+    return {"name": passage.name, "tempo_bpm": passage.tempo_bpm, "guitar": asdict(passage.guitar),
+            "report": list(passage.report), "notes": notes}
+
+
+def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation) -> dict:
+    """One realisation as plain JSON-ready data: choices (with stroke letters) and move costs.
+
+    Args:
+        realisation: The realisation.
+        rank: 1 = cheapest.
+        best: The cheapest realisation (for the differing notes).
+    """
+    choices = []
+    for index, choice in enumerate(realisation.choices):
+        playable = choice.position is not None
+        choices.append({
+            "passage_index": choice.passage_index,
+            "string": choice.position.string if playable else None,
+            "fret": choice.position.fret if playable else None,
+            "finger": choice.finger, "hand": choice.hand, "stroke": choice.stroke,
+            "stroke_letter": stroke_letter(realisation, index) if playable else None,
+        })
+    return {"rank": rank, "total_cost": realisation.total_cost,
+            "differs_at_notes": differing_notes(realisation, best),
+            "choices": choices, "moves": [asdict(move) for move in realisation.moves]}
+
+
+def build_run_record(realisations: list[Realisation], source: dict, comment: str | None,
+                     search_seconds: float, run_config: dict) -> dict:
+    """Everything one run produced and used, standalone: passage, settings snapshot, realisations.
+
+    Args:
+        realisations: Search results, cheapest first (all share one passage).
+        source: Where the passage came from (lick file, or GP file + track / bars / voice) and overrides.
+        comment: Free text from --comment, or None.
+        search_seconds: Search time.
+        run_config: The loaded run config (pointers already absolute).
+    """
+    # Settings snapshot: the config files exactly as read, so the run stays comparable after edits
+    settings = {"run_config": yaml.safe_load(RUN_CONFIG.read_text())}
+    for pointer in CONFIG_POINTERS:
+        settings[pointer] = yaml.safe_load(Path(run_config[pointer]).read_text())
+    best = realisations[0]
+    return {
+        "format": RUN_FILE_FORMAT, "created": datetime.now().isoformat(timespec="seconds"),
+        "comment": comment, "source": source, "search_seconds": round(search_seconds, 3),
+        "term_hand": TERM_HAND, "settings": settings,
+        "passage": passage_to_dict(best.passage),
+        "realisations": [realisation_to_dict(realisation, rank, best)
+                         for rank, realisation in enumerate(realisations, start=1)],
+    }
+
+
+def free_run_path(runs_folder: Path, passage_name: str, comment: str | None) -> Path:
+    """yymmdd_<passage>[_<comment>].json in the runs folder; _2, _3 … appended if the name is taken.
+
+    Args:
+        runs_folder: Folder holding run files.
+        passage_name: Passage name (turned into lowercase words joined by _).
+        comment: Optional free text from --comment.
+    """
+    parts = [datetime.now().strftime("%y%m%d"), passage_name] + ([comment] if comment else [])
+    stem = "_".join(re.sub(r"[^a-z0-9]+", "_", part.lower()).strip("_") for part in parts)
+    path, copy_number = runs_folder / f"{stem}.json", 2
+    while path.exists():
+        path, copy_number = runs_folder / f"{stem}_{copy_number}.json", copy_number + 1
+    return path
+
+
 def main() -> None:
     """Parse arguments, load the passage, search, print."""
     parser = argparse.ArgumentParser(description="GRIP optimiser (Layer 1): cheapest realisations of a passage")
@@ -133,8 +218,12 @@ def main() -> None:
     parser.add_argument("--bars", default="1-4", help="GP bar range, 1-based inclusive, e.g. 5-8")
     parser.add_argument("--voice", type=int, default=0, help="GP voice, from 0")
     parser.add_argument("--tempo", type=float, help="override the tempo (bpm)")
+    parser.add_argument("--tuning-shift", type=int, default=0,
+                        help="retune every string by N semitones, pitches kept (e.g. -1: Eb saved as E standard)")
     parser.add_argument("--k", type=int, help="how many realisations (default: run config)")
     parser.add_argument("--breakdown", action="store_true", help="print every move of every realisation")
+    parser.add_argument("--save", action="store_true", help="write the run as JSON to the runs folder")
+    parser.add_argument("--comment", help="free text added to the run file's name and contents (with --save)")
     args = parser.parse_args()
 
     run_config = load_run_config(RUN_CONFIG)
@@ -145,9 +234,9 @@ def main() -> None:
     if args.gp:
         first_bar, last_bar = (int(bar) for bar in args.bars.split("-"))
         passage = load_gp_passage(Path(args.gp), args.track, first_bar, last_bar, guitar, switches,
-                                  run_config["gp_parser_config"], args.voice, args.tempo)
+                                  run_config["gp_parser_config"], args.voice, args.tempo, args.tuning_shift)
     elif args.lick:
-        passage = load_lick(Path(args.lick), guitar, switches, args.tempo)
+        passage = load_lick(Path(args.lick), guitar, switches, args.tempo, args.tuning_shift)
     else:
         parser.error("give a lick file or --gp")
 
@@ -164,9 +253,21 @@ def main() -> None:
     for rank, realisation in enumerate(realisations, start=1):
         differs = "" if rank == 1 else f" — differs at notes {differing_notes(realisation, best)}"
         print(f"\n#{rank}  cost {realisation.total_cost:.2f}{differs}")
-        print(render_tab(realisation, passage))
+        print(render_tab(realisation))
         if rank == 1 or args.breakdown:
-            print(render_breakdown(realisation, passage))
+            print(render_breakdown(realisation))
+
+    # Save the whole run as one standalone JSON file (opt-in)
+    if args.save:
+        source = ({"gp": args.gp, "track": args.track, "bars": args.bars, "voice": args.voice} if args.gp
+                  else {"lick": args.lick})
+        source.update(tempo_override_bpm=args.tempo, tuning_shift=args.tuning_shift,
+                      k_best=args.k or search["k_best"])
+        record = build_run_record(realisations, source, args.comment, seconds, run_config)
+        runs_folder = REPO_ROOT / run_config["output"]["runs_folder"]
+        run_path = free_run_path(runs_folder, passage.name, args.comment)
+        run_path.write_text(json.dumps(record, indent=1, ensure_ascii=False))
+        print(f"\nsaved: {run_path.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":

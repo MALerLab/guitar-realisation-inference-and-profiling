@@ -28,5 +28,6 @@ link() {  # usage: link <path under STORAGE> <path in repo>
 # link env/.env .env
 link manifests/dadagp_songs.parquet manifests/dadagp_songs.parquet
 link manifests/dadagp_tracks.parquet manifests/dadagp_tracks.parquet
+link optimiser_runs data/optimiser_runs
 
 echo "worktree ready"

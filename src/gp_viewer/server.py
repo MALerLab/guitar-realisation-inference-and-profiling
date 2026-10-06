@@ -1,8 +1,9 @@
-"""Serve a minimal Guitar Pro viewer: alphaTab draws and plays DadaGP files in the browser.
+"""Serve a minimal Guitar Pro viewer: alphaTab draws and plays DadaGP files and optimiser runs.
 
 The server listens on localhost on sym8; VS Code Remote-SSH forwards the port to the desktop.
 It serves the page, alphaTab's browser build, a searchable track list from the manifests,
-and the raw bytes of GP files under the dataset root. Settings: configs/gp_viewer/server_v0.1.yaml.
+the raw bytes of GP files under the dataset root, and optimiser run files (JSON; the page turns
+them into a score). Settings: configs/gp_viewer/server_v0.1.yaml.
 
 Usage: uv run python -m src.gp_viewer.server [--config PATH]
 """
@@ -23,6 +24,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "configs/gp_viewer/server_v0.1.yaml"
 PAGE_FILE = Path(__file__).resolve().parent / "index.html"
+# The page's run file → alphaTex converter (an ES module the page imports)
+RUN_TO_TEX_FILE = Path(__file__).resolve().parent / "run_to_tex.mjs"
 
 # Columns the page's track list shows; song-level ones come from the songs manifest
 TRACK_COLUMNS = ["path", "track_index", "track_name", "guitar_or_bass", "name_says_vocal_or_melody"]
@@ -102,7 +105,8 @@ def guess_content_type(path: Path) -> str:
 
 
 class ViewerHandler(BaseHTTPRequestHandler):
-    """Routes: / (page), /alphatab/<file>, /api/config, /api/tracks, /api/file."""
+    """Routes: / (page), /run_to_tex.mjs, /alphatab/<file>, /api/config, /api/tracks, /api/file,
+    /api/runs, /api/run."""
 
     def __init__(self, *args: Any, config: dict[str, Any], track_table: pd.DataFrame, **kwargs: Any):
         self.config = config
@@ -114,6 +118,8 @@ class ViewerHandler(BaseHTTPRequestHandler):
         params = {name: values[0] for name, values in parse_qs(url.query).items()}
         if url.path in ("/", "/index.html"):
             self.send_file(PAGE_FILE)
+        elif url.path == "/run_to_tex.mjs":
+            self.send_file(RUN_TO_TEX_FILE)
         elif url.path.startswith("/alphatab/"):
             self.send_alphatab_file(url.path.removeprefix("/alphatab/"))
         elif url.path == "/api/config":
@@ -122,6 +128,10 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self.send_track_search(params)
         elif url.path == "/api/file":
             self.send_gp_file(params.get("path", ""))
+        elif url.path == "/api/runs":
+            self.send_run_list()
+        elif url.path == "/api/run":
+            self.send_run_file(params.get("name", ""))
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -153,6 +163,20 @@ class ViewerHandler(BaseHTTPRequestHandler):
         path = resolve_inside(self.config["paths"]["dataset_root"], requested)
         if path is None or path.suffix.lower() not in self.config["gp_files"]["allowed_extensions"]:
             self.send_error(HTTPStatus.NOT_FOUND, "no GP file at that path under the dataset root")
+            return
+        self.send_file(path)
+
+    def send_run_list(self) -> None:
+        """List the run files, newest first (by modification time)."""
+        runs_folder = self.config["paths"]["runs_folder"]
+        runs = sorted(runs_folder.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+        self.send_json([path.name for path in runs])
+
+    def send_run_file(self, name: str) -> None:
+        """Send one run file, only if it is a .json file directly in the runs folder."""
+        path = resolve_inside(self.config["paths"]["runs_folder"], name)
+        if path is None or path.suffix != ".json" or path.parent != self.config["paths"]["runs_folder"].resolve():
+            self.send_error(HTTPStatus.NOT_FOUND, "no run file with that name")
             return
         self.send_file(path)
 

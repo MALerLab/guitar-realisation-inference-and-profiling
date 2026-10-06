@@ -9,7 +9,7 @@
   body { margin: 0; height: 100vh; display: flex; font: 14px system-ui, sans-serif; color: #222; background: #f4f4f4; }
   #sidebar { width: 360px; display: flex; flex-direction: column; border-right: 1px solid #ccc; background: #fff; }
   #sidebar form, #sidebar .controls { padding: 8px; border-bottom: 1px solid #ddd; display: flex; gap: 6px; align-items: center; }
-  #sidebar input[type=text] { flex: 1; padding: 5px; }
+  #sidebar input[type=text], #run-select { flex: 1; padding: 5px; min-width: 0; }
   #result-count { padding: 4px 8px; color: #666; font-size: 12px; }
   #track-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
   #track-list li { padding: 6px 8px; border-bottom: 1px solid #eee; cursor: pointer; }
@@ -32,6 +32,10 @@
 </head>
 <body>
 <aside id="sidebar">
+  <div class="controls">
+    <select id="run-select"><option value="">Optimiser runs…</option></select>
+    <button id="runs-refresh" title="Reload the run list">Reload</button>
+  </div>
   <form id="path-form">
     <input type="text" id="path-input" placeholder="GP path under the DadaGP root">
     <button type="submit">Open</button>
@@ -56,6 +60,7 @@
 
 <script type="module">
 import * as alphaTab from '/alphatab/alphaTab.mjs';
+import { runToTex } from '/run_to_tex.mjs';
 
 const element = (id) => document.getElementById(id);
 const statusLabel = element('status');
@@ -118,6 +123,36 @@ async function openFile(path, trackIndex = 0) {
   statusLabel.textContent = '';
   api.load(bytes, [trackIndex]);
 }
+
+/** Fill the run picker with the server's run files, newest first. */
+async function refreshRunList() {
+  const names = await (await fetch('/api/runs')).json();
+  const runSelect = element('run-select');
+  runSelect.replaceChildren(new Option(`Optimiser runs (${names.length})…`, ''), ...names.map((name) => new Option(name, name)));
+}
+
+/** Fetch one run file and show it: one track per realisation, cheapest first. */
+async function openRun(name) {
+  api.stop();
+  statusLabel.textContent = 'loading…';
+  const response = await fetch(`/api/run?name=${encodeURIComponent(name)}`);
+  if (!response.ok) {
+    statusLabel.textContent = `server: ${response.status} ${response.statusText}`;
+    return;
+  }
+  const run = await response.json();
+  if (run.format?.name !== 'grip_optimiser_run') {
+    statusLabel.textContent = `${name} is not an optimiser run file`;
+    return;
+  }
+  statusLabel.textContent = '';
+  document.querySelector('#track-list li.selected')?.classList.remove('selected');
+  api.tex(runToTex(run, `${name} — ${run.passage.name}`), [0]);
+}
+
+element('run-select').onchange = (event) => { if (event.target.value) openRun(event.target.value); };
+element('runs-refresh').onclick = refreshRunList;
+refreshRunList();
 
 element('path-form').onsubmit = (event) => {
   event.preventDefault();
