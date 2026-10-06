@@ -115,7 +115,7 @@ def ticks_to_seconds(ticks: float, tempo_bpm: float) -> float:
 
 
 def load_lick(lick_path: Path, default_guitar: GuitarSetup, switches: dict[str, bool],
-              tempo_override_bpm: float | None = None) -> Passage:
+              tempo_override_bpm: float | None = None, tuning_shift: int = 0) -> Passage:
     """Read a hand-typed lick file (tests/optimiser/licks/*.yaml).
 
     Each note entry is [pitch, beats] or [pitch, beats, [articulations]]. pitch is a note name
@@ -127,12 +127,14 @@ def load_lick(lick_path: Path, default_guitar: GuitarSetup, switches: dict[str, 
         default_guitar: Guitar used when the lick names no tuning.
         switches: Which articulation types are enforced.
         tempo_override_bpm: Replaces the lick's tempo if given.
+        tuning_shift: Semitones to retune every string by (see shift_tuning).
     """
     lick = yaml.safe_load(Path(lick_path).read_text())
     tempo_bpm = float(tempo_override_bpm or lick["tempo_bpm"])
     guitar = default_guitar
     if "tuning" in lick:
         guitar = replace(default_guitar, tuning=tuple(int(pitch) for pitch in lick["tuning"]))
+    guitar, shift_report = shift_tuning(guitar, tuning_shift)
     ticks_per_bar = int(lick.get("beats_per_bar", 4) * TICKS_PER_QUARTER)
 
     # Walk the entries, advancing time; rests only advance time
@@ -154,7 +156,7 @@ def load_lick(lick_path: Path, default_guitar: GuitarSetup, switches: dict[str, 
         onset_tick += duration_tick
 
     passage = Passage(name=str(lick.get("name", Path(lick_path).stem)), notes=tuple(notes),
-                      tempo_bpm=tempo_bpm, guitar=guitar)
+                      tempo_bpm=tempo_bpm, guitar=guitar, report=tuple(shift_report))
     return mark_unreachable_notes(passage)
 
 
@@ -200,6 +202,27 @@ def enforced_only(marks: frozenset[str], switches: dict[str, bool]) -> frozenset
     return frozenset(mark for mark in marks if switches[mark])
 
 
+def shift_tuning(guitar: GuitarSetup, semitones: int) -> tuple[GuitarSetup, list[str]]:
+    """Retune every string by the same number of semitones; the notes' pitches stay as they are.
+
+    For a source whose pitches are right but whose tuning label is wrong (e.g. a song in Eb
+    saved as E standard: shift -1). Applied before unreachable notes are marked, so a note only
+    the retuned neck can reach is kept.
+
+    Args:
+        guitar: The guitar with the source's tuning.
+        semitones: Shift per string; 0 = unchanged, -1 = down a half step.
+
+    Returns:
+        The retuned guitar, and a report line (none if the shift is 0).
+    """
+    if semitones == 0:
+        return guitar, []
+    shifted = replace(guitar, tuning=tuple(pitch + semitones for pitch in guitar.tuning))
+    return shifted, [f"tuning shifted {semitones:+d} semitones: {guitar.tuning} → {shifted.tuning} "
+                     f"(pitches unchanged)"]
+
+
 def mark_unreachable_notes(passage: Passage) -> Passage:
     """Turn notes no string can reach into null symbols, and report each one (R8).
 
@@ -224,7 +247,7 @@ def mark_unreachable_notes(passage: Passage) -> Passage:
 def load_gp_passage(gp_path: Path, track_index: int, first_bar: int, last_bar: int,
                     default_guitar: GuitarSetup, switches: dict[str, bool],
                     gp_parser_config_path: Path, voice_index: int = 0,
-                    tempo_override_bpm: float | None = None) -> Passage:
+                    tempo_override_bpm: float | None = None, tuning_shift: int = 0) -> Passage:
     """Cut a passage out of a GP file: one track, one voice, a bar range (1-based, inclusive).
 
     Uses the file's tuning and starting tempo. Notes starting together become one null symbol
@@ -240,6 +263,7 @@ def load_gp_passage(gp_path: Path, track_index: int, first_bar: int, last_bar: i
         gp_parser_config_path: Path to the GP parser config (the run config's gp_parser_config).
         voice_index: Voice within the bars, from 0.
         tempo_override_bpm: Replaces the file's starting tempo if given.
+        tuning_shift: Semitones to retune every string by (see shift_tuning).
     """
     parser_config = load_gp_parser_config(gp_parser_config_path)
     events, file_tempo_bpm = parse_gp_file_with_tempo(Path(gp_path), parser_config)
@@ -261,7 +285,8 @@ def load_gp_passage(gp_path: Path, track_index: int, first_bar: int, last_bar: i
     if tempo_override_bpm is None and file_tempo_bpm is None:
         report.append("no tempo in the file: 120 bpm assumed")
 
-    guitar = replace(default_guitar, tuning=chosen[0].tuning)
+    guitar, shift_report = shift_tuning(replace(default_guitar, tuning=chosen[0].tuning), tuning_shift)
+    report += shift_report
     notes, mark_report = gp_events_to_notes(chosen, tempo_bpm, switches)
     name = f"{Path(gp_path).stem} — track {track_index}, bars {first_bar}–{last_bar}"
     passage = Passage(name=name, notes=tuple(notes), tempo_bpm=tempo_bpm, guitar=guitar,

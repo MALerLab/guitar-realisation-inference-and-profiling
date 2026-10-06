@@ -52,6 +52,18 @@ def test_unreachable_note_becomes_a_reported_null_symbol(tmp_path):
     assert any("can't be played" in line for line in passage.report)
 
 
+def test_tuning_shift_retunes_the_neck_before_unreachable_notes_are_marked(tmp_path):
+    lick_path = write_lick(tmp_path, [["Eb2", 0.25], ["E2", 0.25]])
+    standard = load_lick(lick_path, GUITAR, SWITCHES)
+    shifted = load_lick(lick_path, GUITAR, SWITCHES, tuning_shift=-1)
+    # E standard can't reach Eb2; a half step down it's the open low string, and pitches stay put
+    assert standard.notes[0].null_reason == "unreachable"
+    assert shifted.notes[0].null_reason is None
+    assert [note.pitch for note in shifted.notes] == [39, 40]
+    assert shifted.guitar.tuning == tuple(pitch - 1 for pitch in GUITAR.tuning)
+    assert any("tuning shifted -1" in line for line in shifted.report)
+
+
 def test_articulations_follow_the_switches(tmp_path):
     lick = write_lick(tmp_path, [["A3", 0.25], ["B3", 0.25, ["legato"]], ["C4", 0.25, ["bend"]]])
     assert load_lick(lick, GUITAR, SWITCHES).notes[1].articulations == {"legato"}
