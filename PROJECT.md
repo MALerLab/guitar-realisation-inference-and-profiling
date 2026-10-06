@@ -36,7 +36,8 @@
 
 ## Layout rules
 - `src/` subpackages: `data/` · `optimiser/` (searches realisations; `uv run python -m src.optimiser.run_optimiser <lick.yaml>`) · `technique/` · `evaluation/` · `gp_viewer/`
-  (dev tool: browse GP files in a browser; `uv run python -m src.gp_viewer.server`).
+  (dev tool: browse GP files, run the optimiser and annotate passages in a browser; `uv run python -m src.gp_viewer.server`)
+  · `calibration/` (reference passages = Jae's fingerings, fitted against; imports `optimiser/`, never the reverse).
 - `configs/<subpackage>/` mirrors `src/<subpackage>/` — no hardcoded parameters in `src/`.
   `configs/experiments/` is added when the first experiment exists.
 - `scripts/` = one-off / temporary, **untracked**. May hardcode values; its settings never

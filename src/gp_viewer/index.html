@@ -8,6 +8,7 @@
   * { box-sizing: border-box; }
   body { margin: 0; height: 100vh; display: flex; font: 14px system-ui, sans-serif; color: #222; background: #f4f4f4; }
   #sidebar { width: 360px; display: flex; flex-direction: column; border-right: 1px solid #ccc; background: #fff; }
+  body.sidebar-hidden #sidebar { display: none; }
   #sidebar form, #sidebar .controls { padding: 8px; border-bottom: 1px solid #ddd; display: flex; gap: 6px; align-items: center; }
   #sidebar input[type=text], #run-select { flex: 1; padding: 5px; min-width: 0; }
   #result-count { padding: 4px 8px; color: #666; font-size: 12px; }
@@ -20,14 +21,39 @@
   .file-path { color: #999; word-break: break-all; }
   .unreadable { color: #b00; font-size: 12px; }
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #toolbar { padding: 8px; display: flex; gap: 8px; align-items: center; background: #fff; border-bottom: 1px solid #ccc; }
-  #song-title { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #toolbar, #run-bar { padding: 6px 8px; display: flex; gap: 8px; align-items: center; background: #fff; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
+  #run-bar input[type=number] { width: 58px; padding: 3px; }
+  #run-bar .spacer { flex: 1; }
+  #song-title { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 120px; }
   #status { color: #666; font-size: 12px; }
-  #viewport { flex: 1; overflow-y: auto; background: #fff; }
+  #viewport { flex: 1; overflow-y: auto; background: #fff; position: relative; }
   /* alphaTab playback cursor + highlighted beat */
   .at-cursor-bar { background: rgba(255, 242, 0, 0.25); }
   .at-cursor-beat { background: rgba(64, 64, 255, 0.75); width: 3px; }
   .at-highlight * { fill: #0078ff; stroke: #0078ff; }
+  /* Boxes drawn around the selected notes */
+  .note-marker { position: absolute; border: 2px solid #e05a00; border-radius: 3px; pointer-events: none; }
+  #note-panel { width: 290px; overflow-y: auto; border-left: 1px solid #ccc; background: #fff; padding: 8px; }
+  #note-panel h2 { font-size: 15px; margin: 0 0 8px; }
+  #note-panel h3 { font-size: 13px; margin: 12px 0 4px; color: #555; }
+  #note-panel .hint { color: #888; }
+  #note-panel .warning { color: #b00; }
+  #note-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+  #note-panel dt { color: #666; }
+  #note-panel dd { margin: 0; }
+  #note-panel ul { list-style: none; margin: 0; padding: 0; }
+  #note-panel li { padding: 2px 6px; border-radius: 3px; }
+  #note-panel li.chosen, #note-panel button.chosen { background: #ffe3cc; font-weight: 600; }
+  #note-panel .buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+  #note-panel .buttons button { padding: 3px 7px; }
+  #note-panel .keys { margin-top: 16px; color: #777; font-size: 12px; line-height: 1.6; }
+  #save-dialog { width: 460px; }
+  #save-dialog label { display: block; margin: 8px 0 2px; color: #555; }
+  #save-dialog input { width: 100%; padding: 5px; }
+  #save-dialog .folder { color: #777; font-size: 12px; word-break: break-all; }
+  #save-summary { margin: 10px 0; }
+  #save-error { color: #b00; white-space: pre-wrap; }
+  #save-dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 12px 0 0; }
 </style>
 </head>
 <body>
@@ -49,40 +75,107 @@
 </aside>
 <main id="main">
   <div id="toolbar">
+    <button id="sidebar-toggle" title="Hide / show the file panel">☰</button>
     <span id="song-title">No file open</span>
-    <select id="track-select" disabled></select>
+    <label>Track <select id="track-select" disabled></select></label>
+    <label>Realisation <select id="realisation-select" disabled></select></label>
     <button id="play-pause" disabled>Play</button>
     <button id="stop" disabled>Stop</button>
     <span id="status"></span>
   </div>
-  <div id="viewport"><div id="score"></div></div>
+  <div id="run-bar">
+    <label>Bars <input type="number" id="first-bar" min="1"></label>
+    <label>– <input type="number" id="last-bar" min="1"></label>
+    <label>Voice <input type="number" id="voice" min="0" value="0"></label>
+    <label title="Retune every string by N semitones, pitches kept (e.g. −1: a song in Eb saved as E standard)">Tuning shift <input type="number" id="tuning-shift" value="0"></label>
+    <label title="Empty = the file's tempo">Tempo <input type="number" id="tempo" min="1" placeholder="file"></label>
+    <label title="How many realisations">k <input type="number" id="k-best" min="1"></label>
+    <button id="run-button" disabled>Run optimiser</button>
+    <span class="spacer"></span>
+    <button id="edit-button" disabled>Edit</button>
+    <button id="save-button" disabled>Save</button>
+  </div>
+  <div id="viewport"><div id="score"></div><div id="markers"></div></div>
 </main>
+<aside id="note-panel"></aside>
+
+<dialog id="save-dialog">
+  <form method="dialog" id="save-form">
+    <strong>Save the annotation as a reference passage</strong>
+    <div class="folder" id="save-folder"></div>
+    <label for="save-file-name">File name</label>
+    <input type="text" id="save-file-name" spellcheck="false">
+    <label for="save-comment">Comment on this way (optional)</label>
+    <input type="text" id="save-comment">
+    <div id="save-summary"></div>
+    <div id="save-error"></div>
+    <menu>
+      <button type="button" id="save-cancel">Cancel</button>
+      <button type="submit" id="save-confirm">Save</button>
+    </menu>
+  </form>
+</dialog>
 
 <script type="module">
 import * as alphaTab from '/alphatab/alphaTab.mjs';
-import { runToTex } from '/run_to_tex.mjs';
+import { annotationStrokeLetter, choicesToTex } from '/run_to_tex.mjs';
 
 const element = (id) => document.getElementById(id);
 const statusLabel = element('status');
 const trackSelect = element('track-select');
+const realisationSelect = element('realisation-select');
 const playPauseButton = element('play-pause');
 const stopButton = element('stop');
+const viewport = element('viewport');
+const notePanel = element('note-panel');
 
-// Encoding + soundfont come from the server config, not hardcoded here
+// Encoding, soundfont, default k and the reference folder come from the server config
 const pageConfig = await (await fetch('/api/config')).json();
+element('k-best').value = pageConfig.k_best;
 
 const api = new alphaTab.AlphaTabApi(element('score'), {
-  core: { fontDirectory: '/alphatab/font/' },
+  // Note bounds: needed for the boxes drawn around selected notes
+  core: { fontDirectory: '/alphatab/font/', includeNoteBounds: true },
   importer: { encoding: pageConfig.text_encoding },
   notation: { fingeringMode: alphaTab.FingeringMode.SingleNoteEffectBand },
   player: {
     playerMode: alphaTab.PlayerMode.EnabledSynthesizer,
     soundFont: pageConfig.soundfont_url,
-    scrollElement: element('viewport'),
+    scrollElement: viewport,
   },
 });
+// GP files are read here (not by api.load) so their track list is known before drawing
+const fileSettings = new alphaTab.Settings();
+fileSettings.importer.encoding = pageConfig.text_encoding;
 
-// Show alphaTab's progress and failures in the toolbar
+// ---- Page state ----
+
+const state = {
+  song: null,        // the open GP file: { path, trackIndex, score }
+  run: null,         // the open optimiser run: { name, run, positions }
+  annotation: null,  // { settings, passage, positions, choices, startChoices, startedFrom, dirty, report }
+  view: null,        // what the score shows: { kind: 'song' } | { kind: 'realisation', rank } | { kind: 'annotation' }
+  selection: [],     // selected passage note indices, in order (realisation + annotation views)
+};
+
+// Stroke letters as run files write them → names; the run file's H is shown as z
+const STROKE_NAMES = { D: 'down', U: 'up', h: 'hammer-on', p: 'pull-off', s: 'slide', t: 'left-hand tap', H: 'hammer-on from nowhere' };
+const SHOWN_STROKE_LETTER = { H: 'z' };
+const FINGER_NAMES = ['open', 'index', 'middle', 'ring', 'pinky'];
+const PITCH_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const CHANGED_NOTE_COLOUR = new alphaTab.model.Color(224, 90, 0);
+// Annotate-mode keys (not case-sensitive; Colemak-DH doubles: f = down, p = up, w = no pick)
+const EDIT_KEYS = {
+  d: { stroke: 'down' }, f: { stroke: 'down' },
+  u: { stroke: 'up' }, p: { stroke: 'up' },
+  n: { stroke: 'none' }, w: { stroke: 'none' },
+  x: { finger: null, stroke: null },
+  1: { finger: 1 }, 2: { finger: 2 }, 3: { finger: 3 }, 4: { finger: 4 }, 5: { finger: 0 },
+  arrowup: { move: -1 }, arrowdown: { move: 1 },
+};
+
+// ---- alphaTab: player buttons, progress, errors ----
+
 api.error.on((error) => { statusLabel.textContent = `alphaTab error: ${error.message ?? error}`; });
 api.soundFontLoad.on((progress) => {
   statusLabel.textContent = `soundfont ${Math.round((100 * progress.loaded) / progress.total)}%`;
@@ -98,43 +191,554 @@ api.playerStateChanged.on((event) => {
 playPauseButton.onclick = () => api.playPause();
 stopButton.onclick = () => api.stop();
 
-// After a file loads, list its tracks so any of them can be shown
-api.scoreLoaded.on((score) => {
-  element('song-title').textContent = [score.artist, score.title].filter(Boolean).join(' — ') || '(untitled)';
-  trackSelect.replaceChildren(...score.tracks.map((track) => new Option(`${track.index}: ${track.name}`, track.index)));
-  trackSelect.disabled = false;
-});
-api.renderStarted.on(() => {
-  const shown = api.tracks[0];
-  if (shown) trackSelect.value = shown.index;
-});
-trackSelect.onchange = () => api.renderTracks([api.score.tracks[Number(trackSelect.value)]]);
+// ---- Small helpers ----
 
-/** Fetch one GP file's bytes from the server and hand them to alphaTab, showing one track. */
-async function openFile(path, trackIndex = 0) {
-  api.stop();
+/** POST JSON to the server; answers the parsed reply, with an `error` field if the server refused. */
+async function postJson(url, body) {
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const reply = await response.json().catch(() => ({}));
+  if (!response.ok && !reply.error) reply.error = `server: ${response.status} ${response.statusText}`;
+  return reply;
+}
+
+/** Ask before throwing away unsaved annotation edits; true = go ahead. */
+function confirmDiscardAnnotation(action) {
+  return !state.annotation?.dirty || confirm(`The annotation has unsaved edits. ${action} anyway and lose them?`);
+}
+
+/** A GP path relative to the dataset root when it sits inside it, so two spellings compare equal. */
+function relativeGpPath(path) {
+  const root = pageConfig.dataset_root;
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+}
+
+/** True if two passage settings name the same passage (file, track, bars, voice, tempo, tuning shift). */
+function sameSettings(a, b) {
+  if (!a || !b) return false;
+  const key = (s) => JSON.stringify([relativeGpPath(s.gp), s.track, s.first_bar, s.last_bar, s.voice, s.tempo_override_bpm ?? null, s.tuning_shift]);
+  return key(a) === key(b);
+}
+
+/** Passage settings from a run source ("bars": "17-28"); tuning shift worked out for old runs that stored a tuning override. */
+function settingsFromSource(source) {
+  if (!source?.gp) return null;
+  const [firstBar, lastBar] = source.bars.split('-').map(Number);
+  return {
+    gp: source.gp, track: source.track, first_bar: firstBar, last_bar: lastBar, voice: source.voice,
+    tempo_override_bpm: source.tempo_override_bpm ?? null, tuning_shift: source.tuning_shift ?? tuningShiftFromOverride(source),
+  };
+}
+
+/** Old run files stored the whole tuning instead of a shift: recover the shift against the song's own tuning. */
+function tuningShiftFromOverride(source) {
+  const fileTuning = state.song?.score.tracks[source.track]?.staves[0].tuning;
+  if (!source.tuning_override || !fileTuning) return 0;
+  const differences = source.tuning_override.map((pitch, string) => pitch - fileTuning[string]);
+  if (differences.every((difference) => difference === differences[0])) return differences[0];
+  statusLabel.textContent = 'this run used a tuning override that is not a plain shift: check the tuning shift box';
+  return 0;
+}
+
+/** The run bar's passage settings for the open GP file, or null (with a status message) if incomplete. */
+function readSettings() {
+  const number = (id) => (element(id).value === '' ? null : Number(element(id).value));
+  const settings = {
+    gp: state.song?.path, track: state.song?.trackIndex, first_bar: number('first-bar'), last_bar: number('last-bar'),
+    voice: number('voice') ?? 0, tempo_override_bpm: number('tempo'), tuning_shift: number('tuning-shift') ?? 0,
+  };
+  if (!settings.gp) {
+    statusLabel.textContent = 'open a GP file first';
+    return null;
+  }
+  if (settings.first_bar === null || settings.last_bar === null) {
+    statusLabel.textContent = 'drag over bars in the tab, or type the first and last bar';
+    return null;
+  }
+  return settings;
+}
+
+/** Fill the run bar from passage settings (k too, when given). */
+function fillRunBar(settings, kBest = null) {
+  element('first-bar').value = settings?.first_bar ?? '';
+  element('last-bar').value = settings?.last_bar ?? '';
+  element('voice').value = settings?.voice ?? 0;
+  element('tempo').value = settings?.tempo_override_bpm ?? '';
+  element('tuning-shift').value = settings?.tuning_shift ?? 0;
+  if (kBest) element('k-best').value = kBest;
+}
+
+/** The passage on screen with its choices and positions, or null while a GP file is shown. */
+function shownPassage() {
+  if (state.view?.kind === 'realisation') {
+    const realisation = state.run.run.realisations[state.view.rank - 1];
+    return { passage: state.run.run.passage, positions: state.run.positions, choices: realisation.choices, realisation, editable: false };
+  }
+  if (state.view?.kind === 'annotation') {
+    const { passage, positions, choices } = state.annotation;
+    return { passage, positions, choices, realisation: null, editable: true };
+  }
+  return null;
+}
+
+/** True if an annotation note differs from the draft it started as. */
+function changedFromStart(index) {
+  const now = state.annotation.choices[index];
+  const start = state.annotation.startChoices[index];
+  return ['string', 'fret', 'finger', 'stroke'].some((field) => now[field] !== start[field]);
+}
+
+// ---- Which beat is which passage note ----
+
+/**
+ * Map each beat of a drawn passage to its passage note. Every passage note starts exactly one beat:
+ * a note's first piece, or a labelled rest (null symbol, or a note with no position yet). Tied
+ * pieces belong to the note before; unlabelled rests (gaps) to none.
+ */
+function buildBeatMap(track) {
+  const noteOfBeat = new Map();
+  const beatsInOrder = [];
+  const firstBeatOfNote = [];
+  let current = null;
+  for (const bar of track.staves[0].bars) {
+    for (const beat of bar.voices[0].beats) {
+      let index = null;
+      if (!beat.isRest && beat.notes[0].isTieDestination) {
+        index = current;
+      } else if (!beat.isRest || beat.text) {
+        index = firstBeatOfNote.length;
+        firstBeatOfNote.push(beat);
+        current = index;
+      }
+      noteOfBeat.set(beat.id, index);
+      beatsInOrder.push(beat);
+    }
+  }
+  return { noteOfBeat, beatsInOrder, firstBeatOfNote };
+}
+
+let beatMap = null;
+let beatMapScore = null;
+/** The beat map of the passage on screen (rebuilt when the drawn score changes). */
+function currentBeatMap() {
+  if (beatMapScore !== api.score) {
+    beatMap = buildBeatMap(api.score.tracks[0]);
+    beatMapScore = api.score;
+  }
+  return beatMap;
+}
+
+// ---- Drawing ----
+
+let pendingScrollTop = null;
+
+/** Draw what state.view says: the GP file's track, or the passage played one way. Keeps the scroll position if asked. */
+function renderView(keepScroll = false) {
+  pendingScrollTop = keepScroll ? viewport.scrollTop : null;
+  const shown = shownPassage();
+  if (state.view?.kind === 'song') {
+    api.renderScore(state.song.score, [state.song.trackIndex]);
+  } else if (shown) {
+    const editing = state.view.kind === 'annotation';
+    const choices = editing
+      ? shown.choices.map((choice, index) => ({ ...choice, stroke_letter: annotationStrokeLetter(shown.passage, shown.choices, index) }))
+      : shown.choices;
+    const trackName = editing ? `annotation (from ${state.annotation.startedFrom})` : `#${shown.realisation.rank} · cost ${shown.realisation.total_cost.toFixed(2)}`;
+    const score = alphaTab.importer.ScoreLoader.loadAlphaTex(choicesToTex(shown.passage, choices, shown.passage.name, trackName), new alphaTab.Settings());
+    if (editing) colourChangedNotes(score);
+    api.renderScore(score, [0]);
+  }
+  updateTitle();
+  updateDropdowns();
+  updateButtons();
+  updatePanel();
+}
+
+/** Colour the fret numbers of annotation notes that differ from the starting draft. */
+function colourChangedNotes(score) {
+  const { firstBeatOfNote } = buildBeatMap(score.tracks[0]);
+  firstBeatOfNote.forEach((beat, index) => {
+    if (beat.isRest || !changedFromStart(index)) return;
+    const style = new alphaTab.model.NoteStyle();
+    style.colors.set(alphaTab.model.NoteSubElement.GuitarTabFretNumber, CHANGED_NOTE_COLOUR);
+    beat.notes[0].style = style;
+  });
+}
+
+/** Boxes around the selected notes (bounds come from alphaTab's layout of #score). */
+function drawMarkers() {
+  const markers = element('markers');
+  markers.replaceChildren();
+  if (!shownPassage() || !state.selection.length) return;
+  const lookup = api.renderer.boundsLookup;
+  const { firstBeatOfNote } = currentBeatMap();
+  const score = element('score');
+  for (const index of state.selection) {
+    const beat = firstBeatOfNote[index];
+    const beatBounds = beat && lookup?.findBeat(beat);
+    if (!beatBounds) continue;
+    const bounds = beat.isRest ? beatBounds.visualBounds : (beatBounds.notes?.find((noteBounds) => noteBounds.note === beat.notes[0])?.noteHeadBounds ?? beatBounds.visualBounds);
+    const marker = document.createElement('div');
+    marker.className = 'note-marker';
+    Object.assign(marker.style, {
+      left: `${score.offsetLeft + bounds.x - 3}px`, top: `${score.offsetTop + bounds.y - 3}px`,
+      width: `${bounds.w + 6}px`, height: `${bounds.h + 6}px`,
+    });
+    markers.append(marker);
+  }
+}
+
+api.renderStarted.on(() => element('markers').replaceChildren());
+api.postRenderFinished.on(() => {
+  if (pendingScrollTop !== null) viewport.scrollTop = pendingScrollTop;
+  pendingScrollTop = null;
+  drawMarkers();
+});
+
+function updateTitle() {
+  const song = state.song?.score;
+  const songTitle = song ? [song.artist, song.title].filter(Boolean).join(' — ') || '(untitled)' : null;
+  const passageName = shownPassage()?.passage.name;
+  element('song-title').textContent = (state.view?.kind === 'song' ? songTitle : passageName ?? songTitle) ?? 'No file open';
+}
+
+/** Track dropdown = the GP file's tracks; realisation dropdown = the run's realisations + the annotation. "---" marks the one not shown. */
+function updateDropdowns() {
+  const tracks = state.song ? state.song.score.tracks.map((track) => new Option(`${track.index}: ${track.name}`, track.index)) : [];
+  trackSelect.replaceChildren(new Option('---', ''), ...tracks);
+  trackSelect.disabled = !state.song;
+  trackSelect.value = state.view?.kind === 'song' ? String(state.song.trackIndex) : '';
+
+  const options = [new Option('---', '')];
+  for (const realisation of state.run?.run.realisations ?? []) {
+    options.push(new Option(`#${realisation.rank} · cost ${realisation.total_cost.toFixed(2)}`, `rank:${realisation.rank}`));
+  }
+  if (state.annotation) {
+    options.push(new Option(`✎ annotation${state.annotation.dirty ? ' (unsaved)' : ''} — from ${state.annotation.startedFrom}`, 'annotation'));
+  }
+  realisationSelect.replaceChildren(...options);
+  realisationSelect.disabled = options.length === 1;
+  realisationSelect.value = { realisation: `rank:${state.view?.rank}`, annotation: 'annotation' }[state.view?.kind] ?? '';
+}
+
+function updateButtons() {
+  element('run-button').disabled = !state.song;
+  element('edit-button').disabled = !(state.view?.kind === 'song' || state.view?.kind === 'realisation');
+  element('save-button').disabled = !state.annotation;
+}
+
+// ---- Note panel ----
+
+/** Replace the panel with one grey line (plus the key list while annotating). */
+function showPanelHint(text) {
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = text;
+  notePanel.replaceChildren(hint);
+}
+
+/** One <dl> of label → value rows. */
+function definitionList(rows) {
+  const list = document.createElement('dl');
+  for (const [label, value] of rows) {
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const description = document.createElement('dd');
+    description.textContent = value;
+    list.append(term, description);
+  }
+  return list;
+}
+
+function panelHeading(text) {
+  const heading = document.createElement('h3');
+  heading.textContent = text;
+  return heading;
+}
+
+/** A row of buttons; each item is [label, onClick, isChosen]. */
+function buttonRow(items) {
+  const row = document.createElement('div');
+  row.className = 'buttons';
+  for (const [label, onClick, chosen] of items) {
+    const button = document.createElement('button');
+    button.textContent = label;
+    if (chosen) button.className = 'chosen';
+    button.onclick = onClick;
+    row.append(button);
+  }
+  return row;
+}
+
+function fingerText(finger) {
+  return finger === null || finger === undefined ? "don't care" : `${finger} (${FINGER_NAMES[finger]})`;
+}
+
+function strokeText(letter) {
+  return letter ? `${SHOWN_STROKE_LETTER[letter] ?? letter} (${STROKE_NAMES[letter] ?? letter})` : "don't care";
+}
+
+function pitchText(pitch) {
+  return `${PITCH_NAMES[pitch % 12]}${Math.floor(pitch / 12) - 1} (MIDI ${pitch})`;
+}
+
+/** Fill the panel for what is shown and selected. */
+function updatePanel() {
+  const shown = shownPassage();
+  if (!state.view) return showPanelHint('Open a GP file (left) or an optimiser run.');
+  if (state.view.kind === 'song') {
+    return showPanelHint('Drag over bars to fill the bar boxes, then Run optimiser (search) or Edit (annotate, starting from this tab).');
+  }
+  const blocks = [];
+  if (state.selection.length === 1) {
+    blocks.push(...singleNoteBlocks(shown, state.selection[0]));
+  } else if (state.selection.length > 1) {
+    const title = document.createElement('h2');
+    title.textContent = `${state.selection.length} notes selected (notes ${state.selection[0] + 1}–${state.selection.at(-1) + 1})`;
+    blocks.push(title);
+    if (shown.editable) blocks.push(...editButtons(null));
+  } else {
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = shown.editable ? 'Click a note, or drag over several.' : 'Click a note to see its details. Edit starts an annotation from this realisation.';
+    blocks.push(hint);
+  }
+  if (shown.editable) {
+    for (const line of state.annotation.report ?? []) {
+      const report = document.createElement('p');
+      report.className = 'warning';
+      report.textContent = line;
+      blocks.push(report);
+    }
+    const keys = document.createElement('div');
+    keys.className = 'keys';
+    keys.textContent = 'Keys: d/f down · u/p up · n/w no pick · x don\'t care (finger + stroke) · 1–4 finger · 5 open · ↑/↓ string · ←/→ next note · Esc clear · drag to select several';
+    blocks.push(keys);
+  }
+  notePanel.replaceChildren(...blocks);
+}
+
+/** Panel blocks for one note: the passage note, the choice shown, and (annotating) the edit buttons. */
+function singleNoteBlocks(shown, index) {
+  const note = shown.passage.notes[index];
+  const choice = shown.choices[index];
+  const title = document.createElement('h2');
+  title.textContent = `Note ${index + 1} of ${shown.passage.notes.length}`;
+  if (note.pitch === null) {
+    return [title, definitionList([['null symbol', note.null_reason]])];
+  }
+  const noteRows = [['pitch', pitchText(note.pitch)], ['onset', `${note.onset_seconds.toFixed(3)} s`]];
+  if (note.articulations.length) noteRows.push(['source marks', note.articulations.join(', ')]);
+
+  const letter = shown.editable ? annotationStrokeLetter(shown.passage, shown.choices, index) : choice.stroke_letter;
+  const choiceRows = [
+    ['string', choice.string ?? 'none yet'], ['fret', choice.fret ?? 'none yet'],
+    ['finger', fingerText(choice.finger)], ['stroke', strokeText(letter)],
+  ];
+  if (!shown.editable) choiceRows.push(['hand', choice.hand]);
+  if (shown.editable && changedFromStart(index)) {
+    const start = state.annotation.startChoices[index];
+    choiceRows.push(['started as', `string ${start.string ?? '–'} · fret ${start.fret ?? '–'} · finger ${start.finger ?? 'x'} · ${start.stroke ?? 'x'}`]);
+  }
+  const blocks = [title, definitionList(noteRows), panelHeading(shown.editable ? 'Annotation' : `Realisation #${shown.realisation.rank}`), definitionList(choiceRows)];
+
+  // Position options: plain list when viewing, buttons when annotating
+  const positions = shown.positions[index];
+  blocks.push(panelHeading(`Position options (${positions.length})`));
+  if (shown.editable) {
+    blocks.push(buttonRow(positions.map((position) => [
+      `string ${position.string} · fret ${position.fret}`,
+      () => applyEdit({ position }),
+      position.string === choice.string && position.fret === choice.fret,
+    ])));
+    blocks.push(...editButtons(choice));
+  } else {
+    const optionList = document.createElement('ul');
+    for (const position of positions) {
+      const item = document.createElement('li');
+      item.textContent = `string ${position.string} · fret ${position.fret}`;
+      if (position.string === choice.string && position.fret === choice.fret) item.className = 'chosen';
+      optionList.append(item);
+    }
+    blocks.push(optionList);
+  }
+  const mismatch = drawnNoteMismatch(index, choice);
+  if (mismatch) blocks.push(mismatch);
+  return blocks;
+}
+
+/** Finger + stroke buttons; `choice` marks the current values (null when several notes are selected). */
+function editButtons(choice) {
+  const fingerItems = [[1, '1 index'], [2, '2 middle'], [3, '3 ring'], [4, '4 pinky'], [0, '5 open'], [null, "x don't care"]]
+    .map(([finger, label]) => [label, () => applyEdit({ finger }), choice !== null && choice.finger === finger]);
+  const strokeItems = [['down', 'd/f down'], ['up', 'u/p up'], ['none', 'n/w no pick'], [null, "x don't care"]]
+    .map(([stroke, label]) => [label, () => applyEdit({ stroke }), choice !== null && choice.stroke === stroke]);
+  return [panelHeading('Finger'), buttonRow(fingerItems), panelHeading('Stroke'), buttonRow(strokeItems)];
+}
+
+/** A red warning if the drawn note isn't where the choices say (a mapping bug), else null. */
+function drawnNoteMismatch(index, choice) {
+  const beat = currentBeatMap().firstBeatOfNote[index];
+  if (!beat || beat.isRest || choice.string === null) return null;
+  const drawn = beat.notes[0];
+  const drawnString = beat.voice.bar.staff.tuning.length - drawn.string + 1;  // alphaTab counts from the lowest string
+  if (drawn.fret === choice.fret && drawnString === choice.string) return null;
+  const warning = document.createElement('p');
+  warning.className = 'warning';
+  warning.textContent = `Mismatch: drawn string ${drawnString} fret ${drawn.fret}, but the choices say string ${choice.string} fret ${choice.fret}.`;
+  return warning;
+}
+
+// ---- Selecting: click, drag, arrows ----
+
+/** Select passage notes (sorted, playable or null symbols alike) and redraw panel + boxes. */
+function select(indices) {
+  state.selection = [...new Set(indices)].sort((a, b) => a - b);
+  updatePanel();
+  drawMarkers();
+}
+
+let dragStartBeat = null;
+let dragEndBeat = null;
+api.beatMouseDown.on((beat) => { dragStartBeat = beat; dragEndBeat = beat; });
+api.beatMouseMove.on((beat) => { if (dragStartBeat) dragEndBeat = beat; });
+api.beatMouseUp.on((beat) => {
+  if (!dragStartBeat) return;
+  finishDrag(dragStartBeat, beat ?? dragEndBeat);
+  dragStartBeat = null;
+});
+
+/** A click or drag from beat `a` to beat `b`: fills the bar boxes (GP file) or selects notes (passage). */
+function finishDrag(a, b) {
+  if (state.view?.kind === 'song') {
+    const bars = [a, b].map((beat) => beat.voice.bar.index + 1).sort((x, y) => x - y);
+    element('first-bar').value = bars[0];
+    element('last-bar').value = bars[1];
+    statusLabel.textContent = `bars ${bars[0]}–${bars[1]} chosen`;
+    return;
+  }
+  if (!shownPassage()) return;
+  const { noteOfBeat, beatsInOrder } = currentBeatMap();
+  const [from, to] = [beatsInOrder.indexOf(a), beatsInOrder.indexOf(b)].sort((x, y) => x - y);
+  if (from < 0) return;
+  const indices = beatsInOrder.slice(from, to + 1).map((beat) => noteOfBeat.get(beat.id)).filter((index) => index !== null);
+  select(indices);
+}
+
+/** Move the selection to the previous / next note with a pitch. */
+function stepSelection(step) {
+  const notes = shownPassage().passage.notes;
+  let index = state.selection.length ? (step > 0 ? state.selection.at(-1) : state.selection[0]) : (step > 0 ? -1 : notes.length);
+  do { index += step; } while (index >= 0 && index < notes.length && notes[index].pitch === null);
+  if (index < 0 || index >= notes.length) return;
+  select([index]);
+  element('markers').firstChild?.scrollIntoView({ block: 'nearest' });
+}
+
+// ---- Editing the annotation ----
+
+/** The position one string up (step −1, towards string 1) or down (+1) from `choice`, or null. */
+function neighbouringPosition(positions, choice, step) {
+  if (choice.string === null) return positions[0] ?? null;
+  const candidates = positions.filter((position) => (step < 0 ? position.string < choice.string : position.string > choice.string));
+  candidates.sort((x, y) => (step < 0 ? y.string - x.string : x.string - y.string));
+  return candidates[0] ?? null;
+}
+
+/**
+ * Apply one change to every selected note: { position }, { move: ±1 }, { finger }, { stroke } (or finger + stroke).
+ * Fingers must fit the fret (0 = open only on fret 0); notes where a change can't apply are skipped and counted.
+ */
+function applyEdit(change) {
+  if (state.view?.kind !== 'annotation') return;
+  const { passage, positions, choices } = state.annotation;
+  let changed = 0;
+  let skipped = 0;
+  for (const index of state.selection) {
+    if (passage.notes[index].pitch === null) continue;
+    const choice = { ...choices[index] };
+    let position = change.position ?? null;
+    if ('move' in change) position = neighbouringPosition(positions[index], choice, change.move);
+    if (position) {
+      choice.string = position.string;
+      choice.fret = position.fret;
+      // An open string is always finger 0; leaving it drops the finger to don't care
+      if (choice.fret === 0) choice.finger = 0;
+      else if (choice.finger === 0) choice.finger = null;
+    } else if ('move' in change) {
+      skipped += 1;
+      continue;
+    }
+    if ('finger' in change) {
+      const fits = change.finger === null || (choice.fret !== null && (change.finger === 0) === (choice.fret === 0));
+      if (fits) choice.finger = change.finger;
+      else skipped += 1;
+    }
+    if ('stroke' in change) choice.stroke = change.stroke;
+    if (['string', 'fret', 'finger', 'stroke'].some((field) => choice[field] !== choices[index][field])) {
+      choices[index] = choice;
+      changed += 1;
+    }
+  }
+  statusLabel.textContent = skipped ? `${skipped} note(s) skipped (no string that way, or finger doesn't fit the fret: 5 = open strings only)` : '';
+  if (!changed) return;
+  state.annotation.dirty = true;
+  renderView(true);
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.target.closest('input, select, textarea, dialog') || event.ctrlKey || event.metaKey || event.altKey) return;
+  const shown = shownPassage();
+  if (!shown) return;
+  const key = event.key.toLowerCase();
+  if (key === 'arrowleft' || key === 'arrowright') {
+    event.preventDefault();
+    stepSelection(key === 'arrowright' ? 1 : -1);
+  } else if (key === 'escape') {
+    select([]);
+  } else if (key in EDIT_KEYS) {
+    if (!shown.editable) {
+      statusLabel.textContent = 'press Edit to start annotating from this realisation';
+      return;
+    }
+    event.preventDefault();
+    applyEdit(EDIT_KEYS[key]);
+  }
+});
+
+// ---- Opening GP files and runs ----
+
+/** Fetch a GP file and read it (not drawn yet); false (with a status message) if that fails. */
+async function loadSong(path, trackIndex) {
   statusLabel.textContent = 'loading…';
   const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
   if (!response.ok) {
     statusLabel.textContent = `server: ${response.status} ${response.statusText}`;
-    return;
+    return false;
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  try {
+    const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(await response.arrayBuffer()), fileSettings);
+    state.song = { path, trackIndex, score };
+  } catch (error) {
+    statusLabel.textContent = `alphaTab can't read this file: ${error.message ?? error}`;
+    return false;
+  }
   element('path-input').value = path;
   statusLabel.textContent = '';
-  api.load(bytes, [trackIndex]);
+  return true;
 }
 
-/** Fill the run picker with the server's run files, newest first. */
-async function refreshRunList() {
-  const names = await (await fetch('/api/runs')).json();
-  const runSelect = element('run-select');
-  runSelect.replaceChildren(new Option(`Optimiser runs (${names.length})…`, ''), ...names.map((name) => new Option(name, name)));
-}
-
-/** Fetch one run file and show it: one track per realisation, cheapest first. */
-async function openRun(name) {
+/** Open a GP file on one track; closes any run and annotation. */
+async function openFile(path, trackIndex = 0) {
+  if (!confirmDiscardAnnotation('Open another file')) return;
   api.stop();
+  if (!(await loadSong(path, trackIndex))) return;
+  Object.assign(state, { run: null, annotation: null, view: { kind: 'song' }, selection: [] });
+  fillRunBar(null);
+  renderView();
+}
+
+/** Fetch a run and its positions, open its GP file if needed, and show realisation #1. */
+async function showRun(name) {
   statusLabel.textContent = 'loading…';
   const response = await fetch(`/api/run?name=${encodeURIComponent(name)}`);
   if (!response.ok) {
@@ -146,14 +750,187 @@ async function openRun(name) {
     statusLabel.textContent = `${name} is not an optimiser run file`;
     return;
   }
+  // Every note's neck positions, from the optimiser's own candidate_positions on the server
+  const positions = await (await fetch(`/api/positions?name=${encodeURIComponent(name)}`)).json();
+  if (run.source.gp && !(state.song && relativeGpPath(state.song.path) === relativeGpPath(run.source.gp))) {
+    if (!(await loadSong(run.source.gp, run.source.track))) return;
+  } else if (!run.source.gp) {
+    state.song = null;
+  }
+  if (state.song) state.song.trackIndex = run.source.track ?? state.song.trackIndex;
   statusLabel.textContent = '';
   document.querySelector('#track-list li.selected')?.classList.remove('selected');
-  api.tex(runToTex(run, `${name} — ${run.passage.name}`), [0]);
+  state.run = { name, run, positions };
+  fillRunBar(settingsFromSource(run.source), run.source.k_best);
+  state.view = { kind: 'realisation', rank: 1 };
+  renderView();
 }
 
-element('run-select').onchange = (event) => { if (event.target.value) openRun(event.target.value); };
+/** Fill the run picker with the server's run files, newest first. */
+async function refreshRunList() {
+  const names = await (await fetch('/api/runs')).json();
+  element('run-select').replaceChildren(new Option(`Optimiser runs (${names.length})…`, ''), ...names.map((name) => new Option(name, name)));
+}
+
+element('run-select').onchange = async (event) => {
+  const name = event.target.value;
+  event.target.value = '';
+  if (!name || !confirmDiscardAnnotation('Open another run')) return;
+  api.stop();
+  state.annotation = null;
+  state.selection = [];
+  await showRun(name);
+};
 element('runs-refresh').onclick = refreshRunList;
 refreshRunList();
+
+// ---- Toolbar: dropdowns, Run, Edit, Save, sidebar ----
+
+trackSelect.onchange = () => {
+  trackSelect.blur();
+  if (trackSelect.value === '') return;
+  state.song.trackIndex = Number(trackSelect.value);
+  state.view = { kind: 'song' };
+  renderView();
+};
+
+realisationSelect.onchange = () => {
+  realisationSelect.blur();
+  const value = realisationSelect.value;
+  if (value === '') return;
+  state.view = value === 'annotation' ? { kind: 'annotation' } : { kind: 'realisation', rank: Number(value.split(':')[1]) };
+  renderView();
+};
+
+/** Run the optimiser on the run bar's passage; the run is saved and opened. Keeps an annotation of the same passage. */
+async function runOptimiser() {
+  const settings = readSettings();
+  if (!settings) return;
+  const keepAnnotation = state.annotation && sameSettings(state.annotation.settings, settings);
+  if (state.annotation && !keepAnnotation && !confirmDiscardAnnotation('Run on a different passage')) return;
+  const runButton = element('run-button');
+  runButton.disabled = true;
+  const started = Date.now();
+  const timer = setInterval(() => { statusLabel.textContent = `running optimiser… ${Math.round((Date.now() - started) / 1000)} s`; }, 500);
+  const kBest = element('k-best').value;
+  const reply = await postJson('/api/optimise', { ...settings, k_best: kBest === '' ? null : Number(kBest) });
+  clearInterval(timer);
+  runButton.disabled = false;
+  if (reply.error) {
+    statusLabel.textContent = `Run failed: ${reply.error}`;
+    return;
+  }
+  if (!keepAnnotation) state.annotation = null;
+  api.stop();
+  await refreshRunList();
+  await showRun(reply.name);
+}
+element('run-button').onclick = runOptimiser;
+
+/** Start an annotation from what is shown: a realisation (its choices) or the GP file (the tab's own marks). */
+async function startEditing() {
+  if (state.annotation && !confirm(`Start a new annotation? The current one${state.annotation.dirty ? ' has unsaved edits and' : ''} will be closed.`)) return;
+  let annotation;
+  if (state.view?.kind === 'realisation') {
+    const realisation = state.run.run.realisations[state.view.rank - 1];
+    const choices = realisation.choices.map((choice) => ({
+      passage_index: choice.passage_index, string: choice.string, fret: choice.fret,
+      finger: choice.string === null ? null : choice.finger, stroke: choice.string === null ? null : choice.stroke,
+    }));
+    annotation = {
+      settings: settingsFromSource(state.run.run.source), passage: state.run.run.passage, positions: state.run.positions,
+      choices, startedFrom: `rank ${realisation.rank} of ${state.run.name}`, report: [],
+    };
+  } else if (state.view?.kind === 'song') {
+    const settings = readSettings();
+    if (!settings) return;
+    statusLabel.textContent = 'cutting the passage…';
+    const reply = await postJson('/api/passage', settings);
+    if (reply.error) {
+      statusLabel.textContent = `Edit failed: ${reply.error}`;
+      return;
+    }
+    statusLabel.textContent = '';
+    annotation = {
+      settings: settingsFromSource(reply.source), passage: reply.passage, positions: reply.positions,
+      choices: reply.draft, startedFrom: 'source tab', report: reply.report,
+    };
+  } else {
+    return;
+  }
+  state.annotation = { ...annotation, startChoices: structuredClone(annotation.choices), dirty: false };
+  state.view = { kind: 'annotation' };
+  state.selection = [];
+  api.stop();
+  renderView();
+}
+element('edit-button').onclick = startEditing;
+
+// Save: the page's own save box (the browser's Save dialog can only see the desktop's disk, not sym8's)
+const saveDialog = element('save-dialog');
+let saveCheckTimer;
+
+/** The request that saves (or, with dryRun, only checks) the annotation as one more way. */
+function saveRequest(dryRun) {
+  return {
+    file_name: element('save-file-name').value.trim(), settings: state.annotation.settings, dry_run: dryRun,
+    way: { started_from: state.annotation.startedFrom, comment: element('save-comment').value.trim() || null, choices: state.annotation.choices },
+  };
+}
+
+/** Ask the server what Save would do with this file name, and show it. */
+async function checkSave() {
+  element('save-summary').textContent = 'checking…';
+  element('save-error').textContent = '';
+  const reply = await postJson('/api/reference', saveRequest(true));
+  element('save-summary').textContent = reply.error ? '' : (reply.file_existed ? `Adds way ${reply.way_number} to the existing file.` : 'New file: this becomes way 1.');
+  element('save-error').textContent = reply.error ?? '';
+  element('save-confirm').disabled = Boolean(reply.error);
+}
+
+element('save-button').onclick = () => {
+  if (!state.annotation.settings) {
+    statusLabel.textContent = 'this annotation has no GP source (lick run): it can\'t be saved as a reference passage';
+    return;
+  }
+  element('save-folder').textContent = `Folder: ${pageConfig.reference_set_folder}`;
+  element('save-file-name').value = state.annotation.passage.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') + '.json';
+  element('save-comment').value = '';
+  saveDialog.showModal();
+  checkSave();
+};
+element('save-file-name').oninput = () => { clearTimeout(saveCheckTimer); saveCheckTimer = setTimeout(checkSave, 400); };
+element('save-cancel').onclick = () => saveDialog.close();
+element('save-form').onsubmit = async (event) => {
+  event.preventDefault();
+  element('save-confirm').disabled = true;
+  const reply = await postJson('/api/reference', saveRequest(false));
+  if (reply.error) {
+    element('save-error').textContent = reply.error;
+    element('save-confirm').disabled = false;
+    return;
+  }
+  saveDialog.close();
+  state.annotation.dirty = false;
+  statusLabel.textContent = `saved as way ${reply.way_number} in ${reply.file_name}`;
+  updateDropdowns();
+};
+
+// Warn before closing the page with unsaved annotation edits
+window.addEventListener('beforeunload', (event) => {
+  if (state.annotation?.dirty) event.preventDefault();
+});
+
+/** Hide or show the file panel; remembered in this browser. */
+function setSidebarHidden(hidden) {
+  document.body.classList.toggle('sidebar-hidden', hidden);
+  try { localStorage.setItem('gripSidebarHidden', hidden ? '1' : '0'); } catch { /* storage blocked: not remembered */ }
+  if (api.score) api.render();
+}
+element('sidebar-toggle').onclick = () => setSidebarHidden(!document.body.classList.contains('sidebar-hidden'));
+try { document.body.classList.toggle('sidebar-hidden', localStorage.getItem('gripSidebarHidden') === '1'); } catch { /* storage blocked */ }
+
+// ---- File picker: path box + manifest search ----
 
 element('path-form').onsubmit = (event) => {
   event.preventDefault();
@@ -176,10 +953,11 @@ function buildTrackRow(row) {
     line.textContent = text;
     item.append(line);
   }
-  item.onclick = () => {
+  item.onclick = async () => {
+    await openFile(row.path, row.track_index);
+    if (state.song?.path !== row.path) return;
     document.querySelector('#track-list li.selected')?.classList.remove('selected');
     item.classList.add('selected');
-    openFile(row.path, row.track_index);
   };
   return item;
 }
@@ -200,6 +978,7 @@ let searchTimer;
 element('search-input').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(refreshTrackList, 250); };
 element('vocal-only').onchange = refreshTrackList;
 refreshTrackList();
+updatePanel();
 </script>
 </body>
 </html>

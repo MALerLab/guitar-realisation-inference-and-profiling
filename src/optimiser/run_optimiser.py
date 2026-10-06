@@ -168,7 +168,7 @@ def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation) 
 
 
 def build_run_record(realisations: list[Realisation], source: dict, comment: str | None,
-                     search_seconds: float, run_config: dict) -> dict:
+                     search_seconds: float, run_config: dict, run_config_path: Path = RUN_CONFIG) -> dict:
     """Everything one run produced and used, standalone: passage, settings snapshot, realisations.
 
     Args:
@@ -177,9 +177,10 @@ def build_run_record(realisations: list[Realisation], source: dict, comment: str
         comment: Free text from --comment, or None.
         search_seconds: Search time.
         run_config: The loaded run config (pointers already absolute).
+        run_config_path: The run config file, snapshotted as read.
     """
     # Settings snapshot: the config files exactly as read, so the run stays comparable after edits
-    settings = {"run_config": yaml.safe_load(RUN_CONFIG.read_text())}
+    settings = {"run_config": yaml.safe_load(Path(run_config_path).read_text())}
     for pointer in CONFIG_POINTERS:
         settings[pointer] = yaml.safe_load(Path(run_config[pointer]).read_text())
     best = realisations[0]
@@ -209,6 +210,64 @@ def free_run_path(runs_folder: Path, passage_name: str, comment: str | None) -> 
     return path
 
 
+def load_source_passage(source: dict, run_config_path: Path = RUN_CONFIG) -> Passage:
+    """Load the passage a run source names, with the run config's guitar and articulation switches.
+
+    Args:
+        source: {"lick": path} or {"gp": path, "track", "bars" ("5-8", 1-based inclusive), "voice"},
+            plus "tempo_override_bpm" (None = the file's) and "tuning_shift" (semitones).
+        run_config_path: The run config to read.
+    """
+    run_config = load_run_config(run_config_path)
+    guitar = load_guitar_setup(run_config["guitar_setup"])
+    switches = load_articulation_switches(run_config_path)
+    tempo, tuning_shift = source.get("tempo_override_bpm"), source.get("tuning_shift", 0)
+    if "gp" in source:
+        first_bar, last_bar = (int(bar) for bar in source["bars"].split("-"))
+        return load_gp_passage(Path(source["gp"]), source["track"], first_bar, last_bar, guitar, switches,
+                               run_config["gp_parser_config"], source["voice"], tempo, tuning_shift)
+    return load_lick(Path(source["lick"]), guitar, switches, tempo, tuning_shift)
+
+
+def run_search(source: dict, k_best: int | None, comment: str | None,
+               run_config_path: Path = RUN_CONFIG) -> tuple[list[Realisation], dict]:
+    """Load the source's passage, search it, and build the run record (see build_run_record).
+
+    Args:
+        source: See load_source_passage; the record's copy gets "k_best" added.
+        k_best: How many realisations; None = the run config's k_best.
+        comment: Free text kept in the record, or None.
+        run_config_path: The run config to read.
+
+    Returns:
+        The realisations (cheapest first) and the run record.
+    """
+    run_config = load_run_config(run_config_path)
+    search = run_config["search"]
+    passage = load_source_passage(source, run_config_path)
+    k_best = k_best or search["k_best"]
+    started = time.perf_counter()
+    realisations = search_realisations(passage, load_cost_config(run_config["cost_config"]), k_best,
+                                       search["k_search_multiplier"], search["pick_memory_notes"])
+    seconds = time.perf_counter() - started
+    record = build_run_record(realisations, {**source, "k_best": k_best}, comment, seconds, run_config,
+                              run_config_path)
+    return realisations, record
+
+
+def save_run_record(record: dict, run_config_path: Path = RUN_CONFIG) -> Path:
+    """Write a run record to the run config's runs folder under a free name; returns the path.
+
+    Args:
+        record: Output of build_run_record.
+        run_config_path: The run config naming the runs folder.
+    """
+    runs_folder = REPO_ROOT / load_run_config(run_config_path)["output"]["runs_folder"]
+    run_path = free_run_path(runs_folder, record["passage"]["name"], record["comment"])
+    run_path.write_text(json.dumps(record, indent=1, ensure_ascii=False))
+    return run_path
+
+
 def main() -> None:
     """Parse arguments, load the passage, search, print."""
     parser = argparse.ArgumentParser(description="GRIP optimiser (Layer 1): cheapest realisations of a passage")
@@ -226,24 +285,16 @@ def main() -> None:
     parser.add_argument("--comment", help="free text added to the run file's name and contents (with --save)")
     args = parser.parse_args()
 
-    run_config = load_run_config(RUN_CONFIG)
-    search = run_config["search"]
-    guitar = load_guitar_setup(run_config["guitar_setup"])
-    switches = load_articulation_switches(RUN_CONFIG)
-    cost_config = load_cost_config(run_config["cost_config"])
     if args.gp:
-        first_bar, last_bar = (int(bar) for bar in args.bars.split("-"))
-        passage = load_gp_passage(Path(args.gp), args.track, first_bar, last_bar, guitar, switches,
-                                  run_config["gp_parser_config"], args.voice, args.tempo, args.tuning_shift)
+        source = {"gp": args.gp, "track": args.track, "bars": args.bars, "voice": args.voice}
     elif args.lick:
-        passage = load_lick(Path(args.lick), guitar, switches, args.tempo, args.tuning_shift)
+        source = {"lick": args.lick}
     else:
         parser.error("give a lick file or --gp")
+    source.update(tempo_override_bpm=args.tempo, tuning_shift=args.tuning_shift)
 
-    started = time.perf_counter()
-    realisations = search_realisations(passage, cost_config, args.k or search["k_best"],
-                                       search["k_search_multiplier"], search["pick_memory_notes"])
-    seconds = time.perf_counter() - started
+    realisations, record = run_search(source, args.k, args.comment)
+    passage, seconds = realisations[0].passage, record["search_seconds"]
 
     print(f"== {passage.name} — {passage.tempo_bpm:g} bpm, {sum(not n.is_null for n in passage.notes)} notes, "
           f"tuning {passage.guitar.tuning}, searched in {seconds:.1f} s")
@@ -259,14 +310,7 @@ def main() -> None:
 
     # Save the whole run as one standalone JSON file (opt-in)
     if args.save:
-        source = ({"gp": args.gp, "track": args.track, "bars": args.bars, "voice": args.voice} if args.gp
-                  else {"lick": args.lick})
-        source.update(tempo_override_bpm=args.tempo, tuning_shift=args.tuning_shift,
-                      k_best=args.k or search["k_best"])
-        record = build_run_record(realisations, source, args.comment, seconds, run_config)
-        runs_folder = REPO_ROOT / run_config["output"]["runs_folder"]
-        run_path = free_run_path(runs_folder, passage.name, args.comment)
-        run_path.write_text(json.dumps(record, indent=1, ensure_ascii=False))
+        run_path = save_run_record(record)
         print(f"\nsaved: {run_path.relative_to(REPO_ROOT)}")
 
 
