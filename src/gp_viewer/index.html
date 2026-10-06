@@ -74,6 +74,7 @@ const pageConfig = await (await fetch('/api/config')).json();
 const api = new alphaTab.AlphaTabApi(element('score'), {
   core: { fontDirectory: '/alphatab/font/' },
   importer: { encoding: pageConfig.text_encoding },
+  notation: { fingeringMode: alphaTab.FingeringMode.SingleNoteEffectBand },
   player: {
     playerMode: alphaTab.PlayerMode.EnabledSynthesizer,
     soundFont: pageConfig.soundfont_url,
