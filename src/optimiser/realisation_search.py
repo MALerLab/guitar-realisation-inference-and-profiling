@@ -14,7 +14,7 @@ Every route's cost is recomputed by score_path, which the breakdown uses; tests 
 the search's own total.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -100,11 +100,14 @@ class Realisation:
         choices: One NoteChoice per event of the passage (null symbols included).
         moves: One MoveCost per playable note.
         total_cost: Sum of the move costs.
+        passage: The passage this realisation plays (shared, not copied); left out of repr and
+            equality, so realisations print and compare by their decisions only.
     """
 
     choices: tuple[NoteChoice, ...]
     moves: tuple[MoveCost, ...]
     total_cost: float
+    passage: Passage = field(repr=False, compare=False)
 
     def tab_key(self) -> tuple:
         """What a tab shows (string, fret, stroke per note); hand positions left out."""
@@ -249,7 +252,7 @@ def score_path(passage: Passage, contexts: list[NoteContext], path: list[tuple[P
         if stroke != NONE:
             last_pick_index, last_pick_position, last_pick_stroke = index, position, stroke
     return Realisation(choices=build_choices(passage, contexts, path), moves=tuple(moves),
-                       total_cost=sum(move.cost for move in moves))
+                       total_cost=sum(move.cost for move in moves), passage=passage)
 
 
 def build_choices(passage: Passage, contexts: list[NoteContext],
@@ -318,7 +321,7 @@ def search_realisations(passage: Passage, config: CostConfig, k_best: int, k_sea
     """
     contexts = build_note_contexts(passage, config)
     if not contexts:
-        return [Realisation(build_choices(passage, [], []), (), 0.0)]
+        return [Realisation(build_choices(passage, [], []), (), 0.0, passage)]
     k_routes = k_best * k_search_multiplier
     hands = np.arange(1, passage.guitar.highest_fret + 1)
     slots = build_slots(passage.guitar.string_count, pick_memory_notes)
