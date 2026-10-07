@@ -25,7 +25,8 @@ from urllib.parse import parse_qs, quote, urlparse
 import pandas as pd
 import yaml
 
-from src.calibration.reference_set import add_way, is_safe_file_name, reference_file_name, source_tab_draft
+from src.calibration.reference_set import (annotation_problems, check_save, is_safe_file_name, reference_name_base,
+                                           save_annotation, source_tab_draft)
 from src.optimiser.guitar_neck import GuitarSetup, candidate_positions
 from src.optimiser.run_optimiser import (load_run_config, load_source_passage, passage_to_dict, run_search,
                                          save_run_record)
@@ -359,24 +360,39 @@ class ViewerHandler(BaseHTTPRequestHandler):
         return {"source": source, "passage": passage, "positions": passage_note_positions(passage),
                 "draft": draft, "report": passage["report"] + draft_report}
 
-    def save_reference(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Add one way to a reference passage file (or only check it, with "dry_run": true).
+    def dataset_of(self, gp_path: Path) -> str:
+        """The name of the dataset whose root holds `gp_path` (gp_source already checked it sits in one)."""
+        return next(name for name, root in self.dataset_roots.items() if gp_path.is_relative_to(root))
 
+    def save_reference(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Save one annotation as its own reference file, or only check it (with "dry_run": true).
+
+        An empty file name means the suggested one, <dataset>_<GP file>_track_<n>_(<bars>)_1.json.
         The passage is rebuilt from the source here, so the file never trusts the page's copy.
 
         Args:
-            body: {"file_name", "settings" (passage settings), "way": {"started_from", "comment",
-                "choices"}, "dry_run"}.
+            body: {"file_name", "settings" (passage settings), "annotation": {"started_from", "comment",
+                "choices"}, "overwrite", "dry_run"}.
+
+        Returns:
+            Dry run: {"file_name", "problems"} plus what the name meets (see reference_set.check_save).
+            Save: {"file_name", "overwritten"}.
         """
-        file_name = str(body.get("file_name", ""))
-        if not is_safe_file_name(file_name):
-            raise ValueError("file name: lowercase letters, digits, _ and - only, ending in .json")
         source = self.gp_source(body["settings"])
+        gp_path = Path(source["gp"])
+        file_name = str(body.get("file_name") or "").strip()
+        if not file_name:
+            file_name = reference_name_base(self.dataset_of(gp_path), gp_path, source["track"], source["bars"]) + "_1.json"
+        if not is_safe_file_name(file_name):
+            raise ValueError("file name: lowercase letters, digits, _ - ( ) only, ending in .json")
         passage = passage_to_dict(load_source_passage(source, self.config["paths"]["optimiser_run_config"]))
         path = self.config["paths"]["reference_set_folder"] / file_name
+        if body.get("dry_run"):
+            problems = annotation_problems(passage, body["annotation"]["choices"])
+            return {"file_name": file_name, "problems": problems, **check_save(path, source)}
         existed = path.exists()
-        way_number = add_way(path, source, passage, body["way"], dry_run=bool(body.get("dry_run")))
-        return {"file_name": file_name, "way_number": way_number, "file_existed": existed}
+        save_annotation(path, source, passage, body["annotation"], overwrite=bool(body.get("overwrite")))
+        return {"file_name": file_name, "overwritten": existed}
 
     def send_file(self, path: Path, extra_headers: dict[str, str] | None = None) -> None:
         body = path.read_bytes()

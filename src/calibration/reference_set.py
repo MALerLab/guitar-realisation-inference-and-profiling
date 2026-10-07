@@ -1,8 +1,9 @@
 """Reference passages: how Jae plays a passage, the answer key the cost knobs are fitted to.
 
-One JSON file per passage (format grip_reference_passage). It holds where the passage comes from
-(the same source fields as an optimiser run), a snapshot of the passage's notes, and one or more
-ways: several equally good ways to play it. A way gives, per note:
+One JSON file per annotation (format grip_reference_passage): where the passage comes from (the
+same source fields as an optimiser run), a snapshot of the passage's notes, and how Jae plays it.
+Several equally good ways to play one passage = several files with the same source; the fitter
+groups them by source, not by name. Per note, the annotation gives:
 - string + fret: required for every playable note (null for a null symbol)
 - finger: 0 = open, 1–4 = index … pinky, null = don't care
 - stroke: "down", "up", "none" (no pick: hammer-on, pull-off, slide, tap), null = don't care
@@ -24,28 +25,51 @@ from typing import Any
 from src.data.gp_parser import load_gp_parser_config, parse_gp_file_with_tempo
 from src.optimiser.guitar_neck import GuitarSetup, candidate_positions
 
-REFERENCE_FILE_FORMAT = {"name": "grip_reference_passage", "version": "0.1"}
+# v0.2: one annotation per file (v0.1 stacked several "ways" in one file)
+REFERENCE_FILE_FORMAT = {"name": "grip_reference_passage", "version": "0.2"}
 STROKES = ("down", "up", "none")
 # Parser finger names → finger numbers (thumb isn't in the optimiser's model → don't care)
 SOURCE_FINGERS = {"index": 1, "middle": 2, "annular": 3, "little": 4}
 # Passage articulations that mean the note isn't picked
 NO_PICK_ARTICULATIONS = {"legato", "slide", "left_hand_tap"}
-# Note fields that must match for a way to belong to a passage
+# Note fields a passage snapshot keeps
 SNAPSHOT_NOTE_FIELDS = ("pitch", "onset_tick", "duration_tick", "articulations", "null_reason")
+# <base>_<version number>.json
+VERSIONED_NAME = re.compile(r"(?P<base>.+)_(?P<number>\d+)\.json")
 
 
-def reference_file_name(passage_name: str) -> str:
-    """Suggested file name for a passage: lowercase words joined by _, e.g. "song_track_0_bars_17_28.json".
+def reference_name_base(dataset: str, gp_path: Path, track: int, bars: str) -> str:
+    """The track-and-bars part of a reference file name, e.g. "dadagp_stratovarius_stratosphere_2_track_0_(17-24)".
 
     Args:
-        passage_name: The passage's name.
+        dataset: The dataset the GP file belongs to (e.g. "dadagp").
+        gp_path: The GP file; only its name (without extension) is used.
+        track: Track index.
+        bars: "first-last", 1-based.
     """
-    return re.sub(r"[^a-z0-9]+", "_", passage_name.lower()).strip("_") + ".json"
+    words = re.sub(r"[^a-z0-9]+", "_", f"{dataset} {gp_path.stem}".lower()).strip("_")
+    return f"{words}_track_{track}_({bars})"
 
 
 def is_safe_file_name(file_name: str) -> bool:
-    """True for a plain file name of lowercase letters, digits, _ and - ending in .json."""
-    return re.fullmatch(r"[a-z0-9_\-]+\.json", file_name) is not None
+    """True for a plain file name of lowercase letters, digits, _ - ( ) ending in .json."""
+    return re.fullmatch(r"[a-z0-9_\-()]+\.json", file_name) is not None
+
+
+def new_version_name(folder: Path, file_name: str) -> str:
+    """The next version of a file name: its base with the highest existing number + 1.
+
+    "x_1.json" with x_1 and x_3 on disk → "x_4.json"; an unnumbered "x.json" counts as version 1.
+
+    Args:
+        folder: The reference set folder.
+        file_name: A file name ending in .json, numbered or not.
+    """
+    match = VERSIONED_NAME.fullmatch(file_name)
+    base = match["base"] if match else file_name.removesuffix(".json")
+    numbers = [int(found["number"]) for path in folder.glob("*.json")
+               if (found := VERSIONED_NAME.fullmatch(path.name)) and found["base"] == base]
+    return f"{base}_{max(numbers, default=1) + 1}.json"
 
 
 def source_tab_draft(source: dict[str, Any], passage: dict[str, Any],
@@ -111,7 +135,7 @@ def source_stroke(techniques: tuple[str, ...], articulations: list[str]) -> str 
 
 
 def passage_snapshot(passage: dict[str, Any]) -> dict[str, Any]:
-    """The parts of a passage a way depends on: name, tempo, guitar and each note's timing + pitch.
+    """The parts of a passage an annotation depends on: name, tempo, guitar and each note's timing + pitch.
 
     Args:
         passage: The passage as a run file stores it.
@@ -123,16 +147,8 @@ def passage_snapshot(passage: dict[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(snapshot))
 
 
-def same_passage(snapshot_a: dict[str, Any], snapshot_b: dict[str, Any]) -> bool:
-    """True if two snapshots have the same guitar tuning and the same notes (pitch + timing + marks)."""
-    if snapshot_a["guitar"]["tuning"] != snapshot_b["guitar"]["tuning"] or len(snapshot_a["notes"]) != len(snapshot_b["notes"]):
-        return False
-    return all(all(a[field] == b[field] for field in SNAPSHOT_NOTE_FIELDS)
-               for a, b in zip(snapshot_a["notes"], snapshot_b["notes"]))
-
-
-def way_problems(passage: dict[str, Any], choices: list[dict[str, Any]]) -> list[str]:
-    """Everything wrong with one way, as lines for Jae; an empty list means it can be saved.
+def annotation_problems(passage: dict[str, Any], choices: list[dict[str, Any]]) -> list[str]:
+    """Everything wrong with one annotation, as lines for Jae; an empty list means it can be saved.
 
     Args:
         passage: The passage as a run file stores it.
@@ -161,43 +177,62 @@ def way_problems(passage: dict[str, Any], choices: list[dict[str, Any]]) -> list
     return [f"{reason}: notes {numbers}" for reason, numbers in problems.items()]
 
 
-def add_way(reference_path: Path, source: dict[str, Any], passage: dict[str, Any], way: dict[str, Any],
-            dry_run: bool = False) -> int:
-    """Add one way to a passage's reference file, creating the file if needed; returns the way's number.
+def same_track(source_a: dict[str, Any], source_b: dict[str, Any]) -> bool:
+    """True if two sources name the same GP file and track (bars and tuning shift may differ)."""
+    return source_a.get("gp") == source_b.get("gp") and source_a.get("track") == source_b.get("track")
 
-    Refuses (ValueError) a way with problems, a file holding another passage, and a way identical
-    to one already in the file.
+
+def check_save(reference_path: Path, source: dict[str, Any]) -> dict[str, Any]:
+    """What saving to `reference_path` would meet: a free name, the same track's file, or another track's.
 
     Args:
-        reference_path: The passage's reference file.
+        reference_path: The file the annotation would be saved as.
+        source: Where the annotation's passage comes from.
+
+    Returns:
+        {"exists", "same_track" (None if free), "existing_passage" (name or None),
+         "existing_saved" (time or None), "new_version_name"}.
+    """
+    existing = json.loads(reference_path.read_text()) if reference_path.exists() else None
+    return {
+        "exists": existing is not None,
+        "same_track": None if existing is None else same_track(existing.get("source", {}), source),
+        "existing_passage": None if existing is None else existing.get("passage", {}).get("name"),
+        "existing_saved": None if existing is None else existing.get("saved"),
+        "new_version_name": new_version_name(reference_path.parent, reference_path.name),
+    }
+
+
+def save_annotation(reference_path: Path, source: dict[str, Any], passage: dict[str, Any],
+                    annotation: dict[str, Any], overwrite: bool = False) -> None:
+    """Write one annotation as its own reference file.
+
+    Refuses (ValueError) an annotation with problems, an existing file unless `overwrite`, and
+    always an existing file of another track (the safety net: never overwrite another song).
+
+    Args:
+        reference_path: The file to write.
         source: Where the passage comes from (run source fields, without k_best).
         passage: The passage as a run file stores it.
-        way: {"started_from": text, "comment": text or None, "choices": [...]}.
-        dry_run: Check everything and return the number, but write nothing.
+        annotation: {"started_from": text, "comment": text or None, "choices": [...]}.
+        overwrite: Replace an existing file of the same track.
     """
-    problems = way_problems(passage, way["choices"])
+    problems = annotation_problems(passage, annotation["choices"])
     if problems:
         raise ValueError("can't save yet — " + "; ".join(problems))
-    snapshot = passage_snapshot(passage)
     if reference_path.exists():
-        reference = json.loads(reference_path.read_text())
-        if not same_passage(reference["passage"], snapshot):
-            raise ValueError(f"{reference_path.name} holds a different passage ({reference['passage']['name']}); pick another name")
-    else:
-        reference = {"format": REFERENCE_FILE_FORMAT, "source": source, "passage": snapshot, "ways": []}
+        existing = json.loads(reference_path.read_text())
+        if not same_track(existing.get("source", {}), source):
+            raise ValueError(f"{reference_path.name} holds another track ({existing.get('passage', {}).get('name')}); "
+                             "save as a new version instead")
+        if not overwrite:
+            raise ValueError(f"{reference_path.name} already exists; choose overwrite or new version")
 
     # Only string, fret, finger, stroke are kept per note
     choices = [{field: choice.get(field) for field in ("passage_index", "string", "fret", "finger", "stroke")}
-               for choice in way["choices"]]
-    for number, existing in enumerate(reference["ways"], start=1):
-        if existing["choices"] == choices:
-            raise ValueError(f"identical to way {number} already in {reference_path.name}")
-    if dry_run:
-        return len(reference["ways"]) + 1
-
-    reference["ways"].append({"saved": datetime.now().isoformat(timespec="seconds"),
-                              "started_from": way["started_from"], "comment": way.get("comment"),
-                              "choices": choices})
+               for choice in annotation["choices"]]
+    reference = {"format": REFERENCE_FILE_FORMAT, "saved": datetime.now().isoformat(timespec="seconds"),
+                 "started_from": annotation["started_from"], "comment": annotation.get("comment"),
+                 "source": source, "passage": passage_snapshot(passage), "choices": choices}
     reference_path.parent.mkdir(parents=True, exist_ok=True)
     reference_path.write_text(json.dumps(reference, indent=1, ensure_ascii=False))
-    return len(reference["ways"])

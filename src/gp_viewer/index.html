@@ -55,6 +55,8 @@
   #save-dialog .folder { color: #777; font-size: 12px; word-break: break-all; }
   #save-summary { margin: 10px 0; }
   #save-error { color: #b00; white-space: pre-wrap; }
+  #save-choice { display: flex; gap: 8px; margin: 6px 0; }
+  #save-choice[hidden] { display: none; }
   #save-dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 12px 0 0; }
 </style>
 </head>
@@ -111,9 +113,14 @@
     <div class="folder" id="save-folder"></div>
     <label for="save-file-name">File name</label>
     <input type="text" id="save-file-name" spellcheck="false">
-    <label for="save-comment">Comment on this way (optional)</label>
+    <label for="save-comment">Comment (optional)</label>
     <input type="text" id="save-comment">
     <div id="save-summary"></div>
+    <!-- Shown when the name is taken: overwrite (same track only) or the next version number -->
+    <div id="save-choice" hidden>
+      <button type="button" id="save-overwrite">Overwrite</button>
+      <button type="button" id="save-new-version">New version</button>
+    </div>
     <div id="save-error"></div>
     <menu>
       <button type="button" id="save-cancel">Cancel</button>
@@ -872,23 +879,52 @@ element('edit-button').onclick = startEditing;
 // Save: the page's own save box (the browser's Save dialog can only see the desktop's disk, not sym8's)
 const saveDialog = element('save-dialog');
 let saveCheckTimer;
+// Jae chose "Overwrite" for the name in the box; any edit to the name clears it
+let saveOverwrite = false;
+// The name "New version" fills in, from the last check
+let saveNewVersionName = null;
 
-/** The request that saves (or, with dryRun, only checks) the annotation as one more way. */
+/** The request that saves (or, with dryRun, only checks) the annotation as its own file; an empty name asks for the suggested one. */
 function saveRequest(dryRun) {
   return {
-    file_name: element('save-file-name').value.trim(), settings: state.annotation.settings, dry_run: dryRun,
-    way: { started_from: state.annotation.startedFrom, comment: element('save-comment').value.trim() || null, choices: state.annotation.choices },
+    file_name: element('save-file-name').value.trim(), settings: state.annotation.settings, dry_run: dryRun, overwrite: saveOverwrite,
+    annotation: { started_from: state.annotation.startedFrom, comment: element('save-comment').value.trim() || null, choices: state.annotation.choices },
   };
 }
 
-/** Ask the server what Save would do with this file name, and show it. */
+/** Ask the server what Save would do with this file name, and show it (plus the overwrite / new version choice if taken). */
 async function checkSave() {
   element('save-summary').textContent = 'checking…';
   element('save-error').textContent = '';
+  element('save-choice').hidden = true;
+  element('save-confirm').disabled = true;
   const reply = await postJson('/api/reference', saveRequest(true));
-  element('save-summary').textContent = reply.error ? '' : (reply.file_existed ? `Adds way ${reply.way_number} to the existing file.` : 'New file: this becomes way 1.');
-  element('save-error').textContent = reply.error ?? '';
-  element('save-confirm').disabled = Boolean(reply.error);
+  if (reply.error) {
+    element('save-summary').textContent = '';
+    element('save-error').textContent = reply.error;
+    return;
+  }
+  if (!element('save-file-name').value.trim()) element('save-file-name').value = reply.file_name;
+  saveNewVersionName = reply.new_version_name;
+  const existing = `${reply.existing_passage ?? '?'}, saved ${reply.existing_saved?.replace('T', ' ') ?? '?'}`;
+  let summary, nameFree = true;
+  if (!reply.exists) {
+    summary = 'New file.';
+  } else if (!reply.same_track) {
+    summary = `This name already holds another track (${existing}), so it can't be overwritten. Save as a new version (${reply.new_version_name})?`;
+    nameFree = false;
+  } else if (saveOverwrite) {
+    summary = `Overwrites the existing file (${existing}).`;
+  } else {
+    summary = `A realisation with this name already exists (${existing}). Overwrite it, or create a new version (${reply.new_version_name})?`;
+    nameFree = false;
+  }
+  element('save-summary').textContent = summary;
+  element('save-choice').hidden = nameFree;
+  element('save-overwrite').hidden = !reply.same_track;
+  if (reply.problems.length) element('save-error').textContent = `can't save yet — ${reply.problems.join('; ')}`;
+  element('save-confirm').textContent = reply.exists && saveOverwrite ? 'Overwrite' : 'Save';
+  element('save-confirm').disabled = !nameFree || reply.problems.length > 0;
 }
 
 element('save-button').onclick = () => {
@@ -897,12 +933,23 @@ element('save-button').onclick = () => {
     return;
   }
   element('save-folder').textContent = `Folder: ${pageConfig.reference_set_folder}`;
-  element('save-file-name').value = state.annotation.passage.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') + '.json';
+  element('save-file-name').value = '';
   element('save-comment').value = '';
+  saveOverwrite = false;
   saveDialog.showModal();
   checkSave();
 };
-element('save-file-name').oninput = () => { clearTimeout(saveCheckTimer); saveCheckTimer = setTimeout(checkSave, 400); };
+element('save-file-name').oninput = () => {
+  saveOverwrite = false;
+  clearTimeout(saveCheckTimer);
+  saveCheckTimer = setTimeout(checkSave, 400);
+};
+element('save-overwrite').onclick = () => { saveOverwrite = true; checkSave(); };
+element('save-new-version').onclick = () => {
+  saveOverwrite = false;
+  element('save-file-name').value = saveNewVersionName;
+  checkSave();
+};
 element('save-cancel').onclick = () => saveDialog.close();
 element('save-form').onsubmit = async (event) => {
   event.preventDefault();
@@ -915,7 +962,7 @@ element('save-form').onsubmit = async (event) => {
   }
   saveDialog.close();
   state.annotation.dirty = false;
-  statusLabel.textContent = `saved as way ${reply.way_number} in ${reply.file_name}`;
+  statusLabel.textContent = `${reply.overwritten ? 'overwrote' : 'saved'} ${reply.file_name}`;
   updateDropdowns();
 };
 
