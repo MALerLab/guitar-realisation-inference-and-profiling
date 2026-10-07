@@ -1,18 +1,33 @@
-# GP viewer server v0.1: where it listens, which files it may serve, how alphaTab reads them.
+# GP viewer server v0.2: where it listens, which datasets it searches and opens, how alphaTab reads them.
 # Read by src/gp_viewer/server.py. Paths are relative to the repo root unless they start with ~ or /.
-version: "0.1"
+# v0.2: one dataset → a list of datasets (DadaGP, GOAT, ProgGP), each with its own folder and manifests.
+version: "0.2"
 
 server:
   # Localhost only; VS Code Remote-SSH forwards the port to the desktop browser
   host: 127.0.0.1
   port: 8765
 
+# One entry per dataset; keys match the manifests' `dataset` column. Only files under a dataset's
+# root can be opened (read only). Song-level columns are joined onto the track list on `path`.
+datasets:
+  dadagp:
+    label: DadaGP
+    root: ~/storage/grip/datasets/dadagp/DadaGP-v1.1
+    tracks_manifest: manifests/dadagp_tracks.parquet
+    songs_manifest: manifests/dadagp_songs.parquet
+  goat:
+    label: GOAT
+    root: ~/storage/grip/datasets/goat/GOAT/data
+    tracks_manifest: manifests/goat_tracks.parquet
+    songs_manifest: manifests/goat_songs.parquet
+  proggp:
+    label: ProgGP
+    root: ~/storage/grip/datasets/proggp/ProgGP/GP5
+    tracks_manifest: manifests/proggp_tracks.parquet
+    songs_manifest: manifests/proggp_songs.parquet
+
 paths:
-  # Only files under this folder can be opened (read only)
-  dataset_root: ~/storage/grip/datasets/dadagp/DadaGP-v1.1
-  # Track list shown in the page; song-level columns are joined in on `path`
-  tracks_manifest: manifests/dadagp_tracks.parquet
-  songs_manifest: manifests/dadagp_songs.parquet
   # Optimiser run files (run_optimiser.py --save); a link to ~/storage/grip/optimiser_runs/
   runs_folder: data/optimiser_runs
   # The run config the Run button uses (guitar, cost knobs, search settings, runs folder)

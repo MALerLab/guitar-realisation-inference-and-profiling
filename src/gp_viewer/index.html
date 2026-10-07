@@ -11,6 +11,8 @@
   body.sidebar-hidden #sidebar { display: none; }
   #sidebar form, #sidebar .controls { padding: 8px; border-bottom: 1px solid #ddd; display: flex; gap: 6px; align-items: center; }
   #sidebar input[type=text], #run-select { flex: 1; padding: 5px; min-width: 0; }
+  #sidebar #filter-boxes { flex-direction: column; align-items: flex-start; gap: 2px; }
+  #filter-boxes .vocal-box { margin-top: 4px; }
   #result-count { padding: 4px 8px; color: #666; font-size: 12px; }
   #track-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
   #track-list li { padding: 6px 8px; border-bottom: 1px solid #eee; cursor: pointer; }
@@ -63,12 +65,16 @@
     <button id="runs-refresh" title="Reload the run list">Reload</button>
   </div>
   <form id="path-form">
-    <input type="text" id="path-input" placeholder="GP path under the DadaGP root">
+    <input type="text" id="path-input" placeholder="GP path: full, or under a ticked dataset">
     <button type="submit">Open</button>
   </form>
   <div class="controls">
     <input type="text" id="search-input" placeholder="Search artist, title, track">
-    <label><input type="checkbox" id="vocal-only" checked> vocal/melody</label>
+  </div>
+  <!-- One box per dataset (filled from the server config), then the vocal/melody filter -->
+  <div class="controls" id="filter-boxes">
+    <div id="dataset-boxes"></div>
+    <label class="vocal-box"><input type="checkbox" id="vocal-only"> vocal/melody tracks only</label>
   </div>
   <div id="result-count"></div>
   <ul id="track-list"></ul>
@@ -129,7 +135,7 @@ const stopButton = element('stop');
 const viewport = element('viewport');
 const notePanel = element('note-panel');
 
-// Encoding, soundfont, default k and the reference folder come from the server config
+// Encoding, soundfont, default k, the datasets and the reference folder come from the server config
 const pageConfig = await (await fetch('/api/config')).json();
 element('k-best').value = pageConfig.k_best;
 
@@ -206,16 +212,10 @@ function confirmDiscardAnnotation(action) {
   return !state.annotation?.dirty || confirm(`The annotation has unsaved edits. ${action} anyway and lose them?`);
 }
 
-/** A GP path relative to the dataset root when it sits inside it, so two spellings compare equal. */
-function relativeGpPath(path) {
-  const root = pageConfig.dataset_root;
-  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
-}
-
 /** True if two passage settings name the same passage (file, track, bars, voice, tempo, tuning shift). */
 function sameSettings(a, b) {
   if (!a || !b) return false;
-  const key = (s) => JSON.stringify([relativeGpPath(s.gp), s.track, s.first_bar, s.last_bar, s.voice, s.tempo_override_bpm ?? null, s.tuning_shift]);
+  const key = (s) => JSON.stringify([s.gp, s.track, s.first_bar, s.last_bar, s.voice, s.tempo_override_bpm ?? null, s.tuning_shift]);
   return key(a) === key(b);
 }
 
@@ -707,34 +707,37 @@ document.addEventListener('keydown', (event) => {
 
 // ---- Opening GP files and runs ----
 
-/** Fetch a GP file and read it (not drawn yet); false (with a status message) if that fails. */
-async function loadSong(path, trackIndex) {
+/** Fetch a GP file and read it (not drawn yet); false (with a status message) if that fails.
+ *  A short path is looked up in the `searched` datasets; the song keeps the server's full path. */
+async function loadSong(path, trackIndex, searched = []) {
   statusLabel.textContent = 'loading…';
-  const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+  const response = await fetch(`/api/file?${new URLSearchParams({ path, datasets: searched.join(',') })}`);
   if (!response.ok) {
     statusLabel.textContent = `server: ${response.status} ${response.statusText}`;
     return false;
   }
   try {
     const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(await response.arrayBuffer()), fileSettings);
-    state.song = { path, trackIndex, score };
+    const fullPath = decodeURIComponent(response.headers.get('X-GP-Path') ?? encodeURIComponent(path));
+    state.song = { path: fullPath, trackIndex, score };
   } catch (error) {
     statusLabel.textContent = `alphaTab can't read this file: ${error.message ?? error}`;
     return false;
   }
-  element('path-input').value = path;
+  element('path-input').value = state.song.path;
   statusLabel.textContent = '';
   return true;
 }
 
-/** Open a GP file on one track; closes any run and annotation. */
-async function openFile(path, trackIndex = 0) {
-  if (!confirmDiscardAnnotation('Open another file')) return;
+/** Open a GP file on one track; closes any run and annotation. True if it opened. */
+async function openFile(path, trackIndex = 0, searched = []) {
+  if (!confirmDiscardAnnotation('Open another file')) return false;
   api.stop();
-  if (!(await loadSong(path, trackIndex))) return;
+  if (!(await loadSong(path, trackIndex, searched))) return false;
   Object.assign(state, { run: null, annotation: null, view: { kind: 'song' }, selection: [] });
   fillRunBar(null);
   renderView();
+  return true;
 }
 
 /** Fetch a run and its positions, open its GP file if needed, and show realisation #1. */
@@ -752,7 +755,7 @@ async function showRun(name) {
   }
   // Every note's neck positions, from the optimiser's own candidate_positions on the server
   const positions = await (await fetch(`/api/positions?name=${encodeURIComponent(name)}`)).json();
-  if (run.source.gp && !(state.song && relativeGpPath(state.song.path) === relativeGpPath(run.source.gp))) {
+  if (run.source.gp && state.song?.path !== run.source.gp) {
     if (!(await loadSong(run.source.gp, run.source.track))) return;
   } else if (!run.source.gp) {
     state.song = null;
@@ -935,16 +938,37 @@ try { document.body.classList.toggle('sidebar-hidden', localStorage.getItem('gri
 element('path-form').onsubmit = (event) => {
   event.preventDefault();
   const path = element('path-input').value.trim();
-  if (path) openFile(path);
+  if (path) openFile(path, 0, tickedDatasets());
 };
 
-/** One list row: song, track, path, and a warning if alphaTab is known to refuse the file. */
+/** Names of the datasets whose boxes are ticked. */
+function tickedDatasets() {
+  return [...document.querySelectorAll('#dataset-boxes input:checked')].map((box) => box.value);
+}
+
+/** One ticked box per dataset in the server config. */
+function buildDatasetBoxes() {
+  element('dataset-boxes').replaceChildren(...pageConfig.datasets.map(({ name, label }) => {
+    const box = Object.assign(document.createElement('input'), { type: 'checkbox', value: name, checked: true });
+    box.onchange = refreshTrackList;
+    const boxLabel = document.createElement('label');
+    boxLabel.append(box, ` ${label}`);
+    const row = document.createElement('div');
+    row.append(boxLabel);
+    return row;
+  }));
+}
+
+// Dataset name → its label, for the track list rows
+const datasetLabels = Object.fromEntries(pageConfig.datasets.map(({ name, label }) => [name, label]));
+
+/** One list row: song, track, dataset + path, and a warning if alphaTab is known to refuse the file. */
 function buildTrackRow(row) {
   const item = document.createElement('li');
   const lines = [
     ['song', `${row.artist ?? '?'} — ${row.title_display ?? '?'}`],
     ['track', `track ${row.track_index}: ${row.track_name} · ${row.guitar_or_bass}`],
-    ['file-path', row.path],
+    ['file-path', `${datasetLabels[row.dataset] ?? row.dataset} · ${row.path}`],
   ];
   if (row.parse_error) lines.push(['unreadable', `alphaTab can't read this file: ${row.parse_error}`]);
   for (const [className, text] of lines) {
@@ -954,18 +978,18 @@ function buildTrackRow(row) {
     item.append(line);
   }
   item.onclick = async () => {
-    await openFile(row.path, row.track_index);
-    if (state.song?.path !== row.path) return;
+    if (!(await openFile(row.gp_path, row.track_index))) return;
     document.querySelector('#track-list li.selected')?.classList.remove('selected');
     item.classList.add('selected');
   };
   return item;
 }
 
-/** Ask the server for manifest tracks matching the search box + toggle, and redraw the list. */
+/** Ask the server for manifest tracks matching the search box + boxes, and redraw the list. */
 async function refreshTrackList() {
   const params = new URLSearchParams({
     query: element('search-input').value,
+    datasets: tickedDatasets().join(','),
     vocal_or_melody_only: element('vocal-only').checked ? '1' : '0',
   });
   const result = await (await fetch(`/api/tracks?${params}`)).json();
@@ -977,6 +1001,7 @@ async function refreshTrackList() {
 let searchTimer;
 element('search-input').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(refreshTrackList, 250); };
 element('vocal-only').onchange = refreshTrackList;
+buildDatasetBoxes();
 refreshTrackList();
 updatePanel();
 </script>
