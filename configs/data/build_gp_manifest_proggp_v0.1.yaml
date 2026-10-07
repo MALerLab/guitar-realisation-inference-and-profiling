@@ -1,0 +1,29 @@
+# GP manifest build for ProgGP: where its files are, how songs are found and named.
+# Read by src/data/build_gp_manifest.py. Output holds indexes and counts only, never musical content.
+version: "0.1"
+
+# Written into every row's `dataset` column
+dataset: proggp
+# Shared rules: alphaTab runtime, guitar/bass identification, tuning labels (path from repo root)
+common_config: configs/data/build_gp_manifest_common_v0.1.yaml
+
+paths:
+  # ProgGP GP5 folder: <artist folder>/<song>.gp5 (encoded_tabs/ beside it = tokens, not read)
+  dataset_root: ~/storage/grip/datasets/proggp/ProgGP/GP5
+  # Output folder: the manifests' real home (repo manifests/ only links here); --output-dir overrides it
+  output_dir: ~/storage/grip/manifests
+  songs_file: proggp_songs.parquet
+  tracks_file: proggp_tracks.parquet
+
+song_files:
+  pattern: "*/*.gp5"
+
+song_names:
+  # Files carry no artist or title; folder and file names are squashed lowercase ("btbam",
+  # "andplagueflowers"), so names come from a hand-reviewed name map. The rules below name any
+  # song the map misses.
+  artist_from: parent_folder
+  title_from: file_stem
+  # Untracked: ProgGP's song list is shared only on request (the public README lists artists only).
+  # A link into ~/storage/grip/name_maps/ (setup_worktree.sh); path from repo root
+  name_map: data/name_maps/proggp_artist_title_map_v0.1.yaml

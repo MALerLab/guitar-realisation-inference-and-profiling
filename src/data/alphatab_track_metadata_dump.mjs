@@ -1,6 +1,6 @@
 // Read one Guitar Pro file with alphaTab and print one JSON line per staff: track-level facts only, no notes.
 // Values are alphaTab's own, unconverted (tuning highest string first, capo as stored in the file).
-// Used by src/data/build_dadagp_manifest.py; the note-level counterpart is src/data/alphatab_dump.mjs.
+// Used by src/data/build_gp_manifest.py; the note-level counterpart is src/data/alphatab_dump.mjs.
 //
 // Usage: node src/data/alphatab_track_metadata_dump.mjs <path-to-gp-file> <text-encoding>
 // <text-encoding>: how stored text (track names) is decoded, e.g. windows-1252; gp3–5 files do not record it

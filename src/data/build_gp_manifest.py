@@ -1,9 +1,11 @@
-"""Build the DadaGP manifest: one row per song, one row per guitar or bass track. Indexes and counts only.
+"""Build a GP dataset manifest: one row per song, one row per guitar or bass track. Indexes and counts only.
 
-Reads the ORIGINAL gp3/gp4/gp5 file of each song (not the tokens, which rewrite drop tunings),
-via alphaTab (src/data/alphatab_track_metadata_dump.mjs). Settings: configs/data/build_dadagp_manifest_v*.yaml.
+One config per dataset (configs/data/build_gp_manifest_<dataset>_v*.yaml) says where its files are and
+how songs are found and named; it points to a common config with the shared rules (guitar/bass
+identification, tuning labels). Each song's GP file is read via alphaTab
+(src/data/alphatab_track_metadata_dump.mjs).
 
-Usage: uv run python -m src.data.build_dadagp_manifest [--config PATH] [--sample-size N] [--output-dir DIR]
+Usage: uv run python -m src.data.build_gp_manifest --config PATH [--sample-size N] [--output-dir DIR]
 """
 
 import argparse
@@ -25,10 +27,9 @@ import yaml
 from src.data.gp_parser import detect_gp_format
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = REPO_ROOT / "configs/data/build_dadagp_manifest_v0.1.yaml"
 
-# Every DadaGP song has exactly one tokens file, named <original file>.tokens.txt
-TOKENS_SUFFIX = ".tokens.txt"
+# GP file extensions stripped from a file name to get its stem (gp3–5, GP6 .gpx, GP7+ .gp)
+GP_EXTENSION = re.compile(r"\.gp[345x]?$", flags=re.IGNORECASE)
 
 # Patterns that suggest a title is still garbled after the exact fixes (approximate by design)
 GARBLE_PATTERNS = [
@@ -42,15 +43,51 @@ GARBLE_PATTERNS = [
 
 
 @dataclass(frozen=True)
-class ManifestConfig:
-    """Settings of the DadaGP manifest build, loaded from configs/data/build_dadagp_manifest_v*.yaml.
+class ExtraSongColumns:
+    """Columns joined onto the song table from a dataset's own metadata CSV.
 
     Args:
-        version: Config version, e.g. "0.1".
-        dataset_root: DadaGP v1.1 root folder.
+        csv_path: The metadata CSV.
+        key_column: CSV column matched against each song file's parent folder name.
+        columns: CSV column → manifest column.
+    """
+
+    csv_path: Path
+    key_column: str
+    columns: dict[str, str]
+
+
+@dataclass(frozen=True)
+class NameMap:
+    """Hand-reviewed display names for a dataset whose files carry none.
+
+    Args:
+        artists: Artist folder → artist name.
+        titles: "<artist folder>/<file stem>" → song title.
+    """
+
+    artists: dict[str, str]
+    titles: dict[str, str]
+
+
+@dataclass(frozen=True)
+class ManifestConfig:
+    """Settings of one dataset's manifest build: its dataset config plus the common config it points to.
+
+    Args:
+        version: Dataset config version, e.g. "0.1".
+        dataset: Dataset name, written into every row's `dataset` column.
+        dataset_root: The dataset's root folder; song paths are relative to it.
         output_dir: Folder the two parquet files are written to.
         songs_file: File name of the song table.
         tracks_file: File name of the guitar-or-bass track table.
+        song_file_pattern: Glob under dataset_root that finds one file per song.
+        song_file_suffix_to_strip: Suffix cut off a found file to get the song's GP file ("" = none).
+        artist_from: "parent_folder" (the song file's folder) or "fixed" (fixed_artist for every song).
+        fixed_artist: The artist when artist_from is "fixed"; None = no artist.
+        title_from: "artist_dash_title" (title part of "<artist> - <title>") or "file_stem".
+        name_map: Display names that win over artist_from / title_from where they have an entry; None = none.
+        extra_song_columns: Metadata CSV columns joined onto the song table; None = none.
         node_script: Absolute path to the alphaTab track metadata dump script.
         text_encoding: How alphaTab decodes stored text such as track names.
         timeout_seconds: Seconds before one file's Node run is abandoned.
@@ -68,10 +105,18 @@ class ManifestConfig:
     """
 
     version: str
+    dataset: str
     dataset_root: Path
     output_dir: Path
     songs_file: str
     tracks_file: str
+    song_file_pattern: str
+    song_file_suffix_to_strip: str
+    artist_from: str
+    fixed_artist: str | None
+    title_from: str
+    name_map: NameMap | None
+    extra_song_columns: ExtraSongColumns | None
     node_script: Path
     text_encoding: str
     timeout_seconds: float
@@ -104,24 +149,35 @@ class TuningDescription:
 
 
 def load_manifest_config(config_path: Path) -> ManifestConfig:
-    """Load the manifest build config.
+    """Load one dataset's manifest config and the common config it points to.
 
     Args:
-        config_path: Path to a configs/data/build_dadagp_manifest_v*.yaml file.
+        config_path: Path to a configs/data/build_gp_manifest_<dataset>_v*.yaml file.
     """
     raw = yaml.safe_load(Path(config_path).read_text())
-    track_rules = raw["guitar_or_bass_tracks"]
+    common = yaml.safe_load((REPO_ROOT / raw["common_config"]).read_text())
+    track_rules = common["guitar_or_bass_tracks"]
+    song_names = raw["song_names"]
     return ManifestConfig(
         version=str(raw["version"]),
+        dataset=raw["dataset"],
         dataset_root=Path(raw["paths"]["dataset_root"]).expanduser(),
-        output_dir=REPO_ROOT / raw["paths"]["output_dir"],
+        # ~ expands; a relative path counts from the repo root
+        output_dir=REPO_ROOT / Path(raw["paths"]["output_dir"]).expanduser(),
         songs_file=raw["paths"]["songs_file"],
         tracks_file=raw["paths"]["tracks_file"],
-        node_script=REPO_ROOT / raw["runtime"]["node_script"],
-        text_encoding=raw["runtime"]["text_encoding"],
-        timeout_seconds=float(raw["runtime"]["timeout_seconds"]),
-        worker_count=int(raw["runtime"]["worker_count"]),
-        sample_seed=int(raw["runtime"]["sample_seed"]),
+        song_file_pattern=raw["song_files"]["pattern"],
+        song_file_suffix_to_strip=raw["song_files"].get("strip_suffix", ""),
+        artist_from=song_names["artist_from"],
+        fixed_artist=song_names.get("artist"),
+        title_from=song_names["title_from"],
+        name_map=load_name_map(song_names.get("name_map")),
+        extra_song_columns=load_extra_song_columns(raw.get("extra_song_columns")),
+        node_script=REPO_ROOT / common["runtime"]["node_script"],
+        text_encoding=common["runtime"]["text_encoding"],
+        timeout_seconds=float(common["runtime"]["timeout_seconds"]),
+        worker_count=int(common["runtime"]["worker_count"]),
+        sample_seed=int(common["runtime"]["sample_seed"]),
         guitar_midi_programs=frozenset(track_rules["guitar_midi_programs"]),
         bass_midi_programs=frozenset(track_rules["bass_midi_programs"]),
         name_alternative_encodings=tuple(track_rules["name_alternative_encodings"]),
@@ -130,23 +186,64 @@ def load_manifest_config(config_path: Path) -> ManifestConfig:
         vocal_or_melody_name_pattern=re.compile(track_rules["vocal_or_melody_name_pattern"]),
         standard_tunings={
             guitar_or_bass: {int(string_count): tuple(tuning) for string_count, tuning in tunings.items()}
-            for guitar_or_bass, tunings in raw["tunings"]["standard_by_guitar_or_bass"].items()
+            for guitar_or_bass, tunings in common["tunings"]["standard_by_guitar_or_bass"].items()
         },
-        max_abs_shift_semitones=int(raw["tunings"]["max_abs_shift_semitones"]),
-        drop_semitones=int(raw["tunings"]["drop_semitones"]),
+        max_abs_shift_semitones=int(common["tunings"]["max_abs_shift_semitones"]),
+        drop_semitones=int(common["tunings"]["drop_semitones"]),
     )
 
 
-def list_song_paths(dataset_root: Path) -> list[str]:
-    """List every song's original GP file, as a path relative to the dataset root, sorted.
+def load_name_map(name_map_path: str | None) -> NameMap | None:
+    """Read a name map YAML ({artists: {folder: name}, titles: {folder/stem: {title: …}}}); None when absent.
+
+    Only the title is used from each title entry; other fields (source, uncertain…) are review notes.
 
     Args:
-        dataset_root: DadaGP v1.1 root folder.
+        name_map_path: Path from the repo root, as written in the config.
+    """
+    if name_map_path is None:
+        return None
+    raw = yaml.safe_load((REPO_ROOT / name_map_path).read_text())
+    return NameMap(artists=dict(raw["artists"]),
+                   titles={key: entry["title"] for key, entry in raw["titles"].items()})
+
+
+def name_map_key(song_path: str) -> str:
+    """A song's key in a name map: "<artist folder>/<file stem>", e.g. "btbam/foo".
+
+    Args:
+        song_path: The song's GP file, relative to the dataset root.
+    """
+    return f"{Path(song_path).parent.name}/{GP_EXTENSION.sub('', Path(song_path).name)}"
+
+
+def load_extra_song_columns(raw: dict[str, Any] | None) -> ExtraSongColumns | None:
+    """Read a dataset config's extra_song_columns section; None when the section is absent.
+
+    Args:
+        raw: The section as parsed from YAML.
+    """
+    if raw is None:
+        return None
+    return ExtraSongColumns(csv_path=Path(raw["csv"]).expanduser(), key_column=raw["key_column"],
+                            columns=dict(raw["columns"]))
+
+
+def list_song_paths(config: ManifestConfig) -> list[str]:
+    """List every song's GP file, as a path relative to the dataset root, sorted.
+
+    Args:
+        config: Loaded manifest config (dataset root, song file pattern, suffix to strip).
     """
     return sorted(
-        str(tokens_path.relative_to(dataset_root))[: -len(TOKENS_SUFFIX)]
-        for tokens_path in dataset_root.glob(f"*/*/*{TOKENS_SUFFIX}")
+        strip_suffix(str(found_path.relative_to(config.dataset_root)), config.song_file_suffix_to_strip)
+        for found_path in config.dataset_root.glob(config.song_file_pattern)
     )
+
+
+def strip_suffix(text: str, suffix: str) -> str:
+    """Cut `suffix` off the end of `text`; unchanged if it doesn't end with it (or suffix is "")."""
+    return text[: -len(suffix)] if suffix and text.endswith(suffix) else text
 
 
 def run_track_metadata_dump(gp_path: Path, config: ManifestConfig) -> list[dict[str, Any]]:
@@ -267,23 +364,58 @@ def version_group_key(artist: str, title: str) -> str:
     return f"{normalise(artist)} | {normalise(title_without_copy_number)}"
 
 
+def song_artist(song_path: str, config: ManifestConfig) -> str | None:
+    """The song's artist: the name map's entry if any, else by the config's artist_from rule.
+
+    Args:
+        song_path: The song's GP file, relative to the dataset root.
+        config: Loaded manifest config (name_map, artist_from, fixed_artist).
+    """
+    artist_folder = Path(song_path).parent.name
+    if config.name_map is not None and artist_folder in config.name_map.artists:
+        return config.name_map.artists[artist_folder]
+    if config.artist_from == "parent_folder":
+        return Path(song_path).parent.name
+    if config.artist_from == "fixed":
+        return config.fixed_artist
+    raise ValueError(f"unknown artist_from: {config.artist_from!r}")
+
+
+def song_title(song_path: str, config: ManifestConfig) -> str:
+    """The song's display title: the name map's entry if any, else by the config's title_from rule
+    after the exact name fixes.
+
+    Args:
+        song_path: The song's GP file, relative to the dataset root.
+        config: Loaded manifest config (name_map, title_from).
+    """
+    if config.name_map is not None and name_map_key(song_path) in config.name_map.titles:
+        return config.name_map.titles[name_map_key(song_path)]
+    cleaned_stem = clean_title(GP_EXTENSION.sub("", Path(song_path).name))
+    if config.title_from == "artist_dash_title":
+        return split_title(cleaned_stem)
+    if config.title_from == "file_stem":
+        return cleaned_stem
+    raise ValueError(f"unknown title_from: {config.title_from!r}")
+
+
 def build_song(song_path: str, config: ManifestConfig) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Read one song and return its song row and its guitar-or-bass track rows.
 
     Args:
-        song_path: Original GP file, relative to the dataset root.
+        song_path: The song's GP file, relative to the dataset root.
         config: Loaded manifest config.
     """
-    artist_folder = Path(song_path).parent.name
-    file_stem = re.sub(r"\.gp[345]$", "", Path(song_path).name, flags=re.IGNORECASE)
-    title = split_title(clean_title(file_stem))
+    artist = song_artist(song_path, config)
+    title = song_title(song_path, config)
     song_row: dict[str, Any] = {
+        "dataset": config.dataset,
         "path": song_path,
         "format": None,
-        "artist": artist_folder,
+        "artist": artist,
         "title_display": title,
         "name_garbled": is_possibly_garbled(title),
-        "version_group": version_group_key(artist_folder, title),
+        "version_group": version_group_key(artist or "", title),
         "track_count": None,
         "guitar_track_count": None,
         "bass_track_count": None,
@@ -366,11 +498,11 @@ def build_track_row(
     """Turn one dumped guitar or bass staff into a manifest track row.
 
     Args:
-        song_path: Original GP file, relative to the dataset root.
+        song_path: The song's GP file, relative to the dataset root.
         staff_row: One row from the track metadata dump.
         guitar_or_bass: "guitar" or "bass".
         identified_by: What decided guitar_or_bass: "midi_program" or "track_name".
-        config: Loaded manifest config (tuning references, vocal/melody pattern).
+        config: Loaded manifest config (dataset name, tuning references, vocal/melody pattern).
     """
     # gp3–5 have one staff per track, so track_index alone identifies the track
     if staff_row["staffIndex"] != 0:
@@ -379,6 +511,7 @@ def build_track_row(
     tuning_description = describe_tuning(tuning, guitar_or_bass, config)
     name = searchable_name(staff_row["trackName"], config.name_alternative_encodings)
     return {
+        "dataset": config.dataset,
         "path": song_path,
         "track_index": staff_row["trackIndex"],
         "track_name": staff_row["trackName"],
@@ -430,17 +563,54 @@ def build_manifest(song_paths: list[str], config: ManifestConfig) -> tuple[pd.Da
     return songs, tracks
 
 
+def report_name_map_gaps(song_paths: list[str], name_map: NameMap | None) -> None:
+    """Print how many songs the name map has no title for (they keep the title_from rule's name).
+
+    Args:
+        song_paths: Songs being built, relative to the dataset root.
+        name_map: The config's name map; None prints nothing.
+    """
+    if name_map is None:
+        return
+    missing_count = sum(name_map_key(song_path) not in name_map.titles for song_path in song_paths)
+    if missing_count:
+        print(f"{missing_count} songs have no name map title")
+
+
+def join_extra_song_columns(songs: pd.DataFrame, extra: ExtraSongColumns | None) -> pd.DataFrame:
+    """Join a dataset's own metadata columns onto the song table, matched on the song file's parent folder.
+
+    Songs without a metadata row keep empty values; their count is printed.
+
+    Args:
+        songs: The song table from build_manifest.
+        extra: The config's extra_song_columns; None returns `songs` unchanged.
+    """
+    if extra is None:
+        return songs
+    metadata = pd.read_csv(extra.csv_path, usecols=[extra.key_column, *extra.columns])
+    metadata = metadata.rename(columns={extra.key_column: "metadata_key", **extra.columns})
+    keys = songs["path"].map(lambda song_path: Path(song_path).parent.name)
+    joined = songs.assign(metadata_key=keys).merge(metadata, on="metadata_key", how="left", validate="many_to_one")
+    unmatched_count = joined[list(extra.columns.values())].isna().all(axis=1).sum()
+    if unmatched_count:
+        print(f"{unmatched_count} songs have no row in {extra.csv_path.name}")
+    return joined.drop(columns="metadata_key")
+
+
 def main() -> None:
-    """Build the manifest from the command line and write the two parquet files."""
+    """Build one dataset's manifest from the command line and write the two parquet files."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--config", type=Path, required=True, help="a configs/data/build_gp_manifest_<dataset>_v*.yaml")
     parser.add_argument("--sample-size", type=int, default=None, help="random subset of songs, for prototyping")
     parser.add_argument("--output-dir", type=Path, default=None, help="overrides paths.output_dir")
     arguments = parser.parse_args()
 
     config = load_manifest_config(arguments.config)
-    song_paths = choose_song_paths(list_song_paths(config.dataset_root), arguments.sample_size, config.sample_seed)
+    song_paths = choose_song_paths(list_song_paths(config), arguments.sample_size, config.sample_seed)
+    report_name_map_gaps(song_paths, config.name_map)
     songs, tracks = build_manifest(song_paths, config)
+    songs = join_extra_song_columns(songs, config.extra_song_columns)
 
     # Write both tables side by side
     output_dir = arguments.output_dir or config.output_dir

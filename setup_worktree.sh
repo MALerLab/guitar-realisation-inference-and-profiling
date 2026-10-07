@@ -28,5 +28,10 @@ link() {  # usage: link <path under STORAGE> <path in repo>
 # link env/.env .env
 link manifests/dadagp_songs.parquet manifests/dadagp_songs.parquet
 link manifests/dadagp_tracks.parquet manifests/dadagp_tracks.parquet
+link manifests/goat_songs.parquet manifests/goat_songs.parquet
+link manifests/goat_tracks.parquet manifests/goat_tracks.parquet
+link manifests/proggp_songs.parquet manifests/proggp_songs.parquet
+link manifests/proggp_tracks.parquet manifests/proggp_tracks.parquet
+link name_maps/proggp_artist_title_map_v0.1.yaml data/name_maps/proggp_artist_title_map_v0.1.yaml
 
 echo "worktree ready"

@@ -1,14 +1,7 @@
-# DadaGP manifest build v0.1: which files are read, which tracks count as guitar or bass, how tunings are labelled.
-# Read by src/data/build_dadagp_manifest.py. Output holds indexes and counts only, never musical content.
+# GP manifest build, rules shared by every dataset: how files are read, which tracks count as guitar or
+# bass, how tunings are labelled. Pointed to by each configs/data/build_gp_manifest_<dataset>_v*.yaml.
+# Read by src/data/build_gp_manifest.py. Output holds indexes and counts only, never musical content.
 version: "0.1"
-
-paths:
-  # DadaGP v1.1 root: <letter-or-digit>/<artist folder>/<files>; read only, never renamed
-  dataset_root: ~/storage/grip/datasets/dadagp/DadaGP-v1.1
-  # Default output folder (from repo root); the build's --output-dir overrides it
-  output_dir: manifests
-  songs_file: dadagp_songs.parquet
-  tracks_file: dadagp_tracks.parquet
 
 runtime:
   # Node script that runs alphaTab and prints one JSON row per staff (path from repo root)
