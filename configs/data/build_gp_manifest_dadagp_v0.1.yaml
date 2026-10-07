@@ -1,0 +1,27 @@
+# GP manifest build for DadaGP v1.1: where its files are, how songs are found and named.
+# Read by src/data/build_gp_manifest.py. Output holds indexes and counts only, never musical content.
+version: "0.1"
+
+# Written into every row's `dataset` column
+dataset: dadagp
+# Shared rules: alphaTab runtime, guitar/bass identification, tuning labels (path from repo root)
+common_config: configs/data/build_gp_manifest_common_v0.1.yaml
+
+paths:
+  # DadaGP v1.1 root: <letter-or-digit>/<artist folder>/<files>; read only, never renamed
+  dataset_root: ~/storage/grip/datasets/dadagp/DadaGP-v1.1
+  # Output folder: the manifests' real home (repo manifests/ only links here); --output-dir overrides it
+  output_dir: ~/storage/grip/manifests
+  songs_file: dadagp_songs.parquet
+  tracks_file: dadagp_tracks.parquet
+
+song_files:
+  # Every song has exactly one tokens file, named <original file>.tokens.txt; the original GP file is
+  # read, never the tokens (they rewrite drop tunings) or the .gp2tokens2gp.gp5 re-save
+  pattern: "*/*/*.tokens.txt"
+  strip_suffix: .tokens.txt
+
+song_names:
+  # artist = the artist folder; title = the file name's "<artist> - <title>" title part, after exact fixes
+  artist_from: parent_folder
+  title_from: artist_dash_title

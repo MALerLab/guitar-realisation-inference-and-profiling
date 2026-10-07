@@ -1,23 +1,30 @@
-"""Check the DadaGP manifest rules on made-up inputs: tuning labels, name fixes, version groups,
-and guitar-or-bass identification. Uses the shipped config, so a config change that breaks a rule fails here.
+"""Check the GP manifest rules on made-up inputs: tuning labels, name fixes, version groups,
+and guitar-or-bass identification. Uses the shipped configs, so a config change that breaks a rule fails here.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from src.data.build_dadagp_manifest import (
+from src.data.build_gp_manifest import (
+    NameMap,
     TuningDescription,
     clean_title,
     describe_tuning,
     guitar_or_bass_evidence,
     load_manifest_config,
+    song_artist,
+    song_title,
     split_title,
     version_group_key,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIG = load_manifest_config(REPO_ROOT / "configs/data/build_dadagp_manifest_v0.1.yaml")
+CONFIG = load_manifest_config(REPO_ROOT / "configs/data/build_gp_manifest_dadagp_v0.1.yaml")
+# Naming rules of a dataset whose files are named by their stem (as ProgGP, GOAT); built from the
+# DadaGP config so the tests never need the untracked name map
+FILE_STEM_CONFIG = replace(CONFIG, title_from="file_stem")
 
 
 @pytest.mark.parametrize(
@@ -73,6 +80,28 @@ def test_clean_title_applies_exact_fixes_only(file_stem: str, expected: str) -> 
 )
 def test_split_title(cleaned_stem: str, expected: str) -> None:
     assert split_title(cleaned_stem) == expected
+
+
+@pytest.mark.parametrize(
+    ("config", "song_path", "expected"),
+    [
+        (CONFIG, "S/Some Band/Some Band - Some Title.gp4", "Some Title"),
+        (FILE_STEM_CONFIG, "Ne Obliviscaris/andplagueflowers.gp5", "andplagueflowers"),
+        # GP7 files end in plain .gp; the extension must not stay in the title
+        (FILE_STEM_CONFIG, "item_0/item_0.gp", "item_0"),
+        (FILE_STEM_CONFIG, "item_0/item_0.GPX", "item_0"),
+    ],
+)
+def test_song_title_strips_every_gp_extension(config, song_path: str, expected: str) -> None:
+    assert song_title(song_path, config) == expected
+
+
+def test_name_map_wins_where_it_has_an_entry() -> None:
+    name_map = NameMap(artists={"btbam": "Between the Buried and Me"}, titles={"btbam/foo": "Foo Bar"})
+    config = replace(FILE_STEM_CONFIG, name_map=name_map)
+    assert (song_artist("btbam/foo.gp5", config), song_title("btbam/foo.gp5", config)) == ("Between the Buried and Me", "Foo Bar")
+    # A song the map misses keeps the folder / file-stem names
+    assert (song_artist("gojira/baz.gp5", config), song_title("gojira/baz.gp5", config)) == ("gojira", "baz")
 
 
 def test_version_group_ignores_copy_number_case_and_punctuation() -> None:

@@ -1,0 +1,41 @@
+# GP manifest build for GOAT: where its files are, how songs are found and named, which metadata joins in.
+# Read by src/data/build_gp_manifest.py. Output holds indexes and counts only, never musical content.
+version: "0.1"
+
+# Written into every row's `dataset` column
+dataset: goat
+# Shared rules: alphaTab runtime, guitar/bass identification, tuning labels (path from repo root)
+common_config: configs/data/build_gp_manifest_common_v0.1.yaml
+
+paths:
+  # GOAT items: data/item_<n>/item_<n>.gp5 (+ .gp, audio, MIDI); read only
+  dataset_root: ~/storage/grip/datasets/goat/GOAT/data
+  # Output folder: the manifests' real home (repo manifests/ only links here); --output-dir overrides it
+  output_dir: ~/storage/grip/manifests
+  songs_file: goat_songs.parquet
+  tracks_file: goat_tracks.parquet
+
+song_files:
+  # .gp5, same format as the other datasets; the .gp (GP7) copies hold pick strokes the .gp5 lost
+  # in items 115 and 147
+  pattern: "*/*.gp5"
+
+song_names:
+  # Files and metadata carry no artist or title; the title is the item id ("item_44")
+  # "unknown" on purpose: an honest signal that nothing on disk names the song (the CSV's player ids
+  # are the recording guitarists, anonymised, not artists)
+  artist_from: fixed
+  artist: unknown
+  title_from: file_stem
+
+extra_song_columns:
+  # GOAT's metadata table; its *_path columns lack the data/ folder, so rows join on the item id
+  csv: ~/storage/grip/datasets/goat/GOAT/metadata.csv
+  # CSV column matched against each song file's parent folder name (item_<n>)
+  key_column: item
+  # CSV column → manifest column
+  columns:
+    player: player
+    guitar_brand: guitar_brand
+    # GOAT's own label; disagrees with the tab for items 0 and 17 (tab: drop D, never sounding the low D)
+    tuning_class: goat_tuning_label
