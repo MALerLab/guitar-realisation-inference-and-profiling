@@ -4,7 +4,7 @@ import { annotationStrokeLetter } from '/run_to_tex.mjs';
 
 // What viewer.mjs shares (page state, alphaTab, drawing), set once by setupAnnotate
 let element, statusLabel, api, state, pageConfig, postJson;
-let renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns;
+let renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns, updateGuitar;
 let notePanel;
 
 // Stroke letters as run files write them → names; the run file's H is shown as z
@@ -29,7 +29,7 @@ const EDIT_KEYS = {
  */
 export function setupAnnotate(page) {
   ({ element, statusLabel, api, state, pageConfig, postJson } = page);
-  ({ renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns } = page);
+  ({ renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns, updateGuitar } = page);
   notePanel = element('note-panel');
   setupSelecting();
   setupEditKeys();
@@ -226,11 +226,12 @@ function drawnNoteMismatch(index, choice) {
 
 // ---- Selecting: click, drag, arrows ----
 
-/** Select passage notes (sorted, playable or null symbols alike) and redraw panel + boxes. */
+/** Select passage notes (sorted, playable or null symbols alike) and redraw panel, boxes and fretboard. */
 function select(indices) {
   state.selection = [...new Set(indices)].sort((a, b) => a - b);
   updatePanel();
   drawMarkers();
+  updateGuitar();
 }
 
 /** Click and drag on the tab: a press, moves, and a release, each on a beat. */
@@ -246,13 +247,15 @@ function setupSelecting() {
   });
 }
 
-/** A click or drag from beat `a` to beat `b`: fills the bar boxes (GP file) or selects notes (passage). */
+/** A click or drag from beat `a` to beat `b`: fills the bar boxes and marks the beats on the fretboard (GP file), or selects notes (passage). */
 function finishDrag(a, b) {
   if (state.view?.kind === 'song') {
     const bars = [a, b].map((beat) => beat.voice.bar.index + 1).sort((x, y) => x - y);
     element('first-bar').value = bars[0];
     element('last-bar').value = bars[1];
     statusLabel.textContent = `bars ${bars[0]}–${bars[1]} chosen`;
+    state.draggedBeats = { first: a, last: b };
+    updateGuitar();
     return;
   }
   if (!shownPassage()) return;

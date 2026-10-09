@@ -2,7 +2,7 @@
 // (tracks, realisations, Run, Edit) and opening GP files and runs.
 // annotate.mjs (note panel, selecting, editing, Save) and file_picker.mjs (path box, track list)
 // get what they need from here through one `page` object when the page starts; guitar_neck.mjs
-// (tuning label, fretboard) only gets a tuning and a fret count.
+// (tuning label, fretboard) only gets a tuning, a fret count and the spots to mark.
 import * as alphaTab from '/alphatab/alphaTab.mjs';
 import { annotationStrokeLetter, choicesToTex } from '/run_to_tex.mjs';
 import { setupAnnotate } from '/annotate.mjs';
@@ -44,6 +44,7 @@ const state = {
   annotation: null,  // { settings, passage, positions, choices, startChoices, startedFrom, dirty, report }
   view: null,        // what the score shows: { kind: 'song' } | { kind: 'realisation', rank } | { kind: 'annotation' }
   selection: [],     // selected passage note indices, in order (realisation + annotation views)
+  draggedBeats: null, // the plain tab's last click or drag: { first, last } alphaTab beats (song view)
 };
 
 const CHANGED_NOTE_COLOUR = new alphaTab.model.Color(224, 90, 0);
@@ -199,7 +200,7 @@ function currentBeatMap() {
 
 const page = {
   element, statusLabel, api, state, pageConfig, postJson,
-  renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns, openFile,
+  renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns, openFile, updateGuitar,
 };
 const annotate = setupAnnotate(page);
 
@@ -267,13 +268,133 @@ function shownGuitar() {
   return guitar?.tuning.length ? guitar : null;
 }
 
-/** The toolbar's tuning label and, while it is open, the fretboard. */
-function updateGuitar() {
+// The marks last drawn on the fretboard, so playback position updates redraw only when they change
+let drawnFretboardKey = null;
+
+/** The toolbar's tuning label and, while it is open, the fretboard with its marks at playback tick `tick`. */
+function updateGuitar(tick = api.tickPosition) {
   const guitar = shownGuitar();
   element('tuning').textContent = guitar ? tuningText(guitar.tuning) : '';
   const fretboard = element('fretboard');
-  if (!guitar) fretboard.replaceChildren();
-  else if (!fretboard.hidden) drawFretboard(fretboard, guitar);
+  if (!guitar || element('fretboard-panel').hidden) {
+    fretboard.replaceChildren();
+    drawnFretboardKey = null;
+    return;
+  }
+  const marks = fretboardMarks(tick);
+  const key = JSON.stringify([guitar, marks]);
+  if (key === drawnFretboardKey) return;
+  drawnFretboardKey = key;
+  drawFretboard(fretboard, { ...guitar, marks });
+}
+
+// ---- Fretboard marks: what is sounding while playing, else what is highlighted ----
+
+// The drawn track's notes in playing order (see buildTimeline), rebuilt when the player's tick cache changes
+let timeline = null;
+
+/** One drawn beat's notes as neck spots { string, fret }; a rest (or a null symbol) has none. */
+function beatSpots(beat) {
+  const stringCount = beat.voice.bar.staff.tuning.length;
+  return beat.notes.map((note) => ({ string: stringCount - note.string + 1, fret: note.fret }));  // alphaTab counts from the lowest string
+}
+
+/**
+ * Every note of a track in real playing order, all voices, repeats and jumps played out (from alphaTab's
+ * tick cache, which lists each bar every time it plays).
+ *
+ * Returns { sounds, events }: sounds = each beat with notes { start, end, spots } (ticks), tied
+ * continuations included; events = notes starting at the same moment, grouped { start, end, spots }
+ * (a tied continuation is not a new event), in time order.
+ */
+function buildTimeline(tickCache, track) {
+  const sounds = [];
+  for (const playedBar of tickCache.masterBars) {
+    for (const voice of track.staves[0].bars[playedBar.masterBar.index]?.voices ?? []) {
+      for (const beat of voice.beats) {
+        const spots = beatSpots(beat);
+        if (!spots.length) continue;
+        const start = playedBar.start + beat.playbackStart;
+        sounds.push({ start, end: start + beat.playbackDuration, spots, newNotes: beat.notes.some((note) => !note.isTieDestination) });
+      }
+    }
+  }
+  sounds.sort((a, b) => a.start - b.start);
+  const events = [];
+  for (const sound of sounds.filter((sound) => sound.newNotes)) {
+    const last = events.at(-1);
+    if (last?.start === sound.start) {
+      last.spots.push(...sound.spots);
+      last.end = Math.max(last.end, sound.end);
+    } else {
+      events.push({ start: sound.start, end: sound.end, spots: [...sound.spots] });
+    }
+  }
+  return { sounds, events };
+}
+
+/** The drawn track's timeline, or null until the player has the drawn score's playing order. */
+function currentTimeline() {
+  const tickCache = api.tickCache;
+  const track = api.tracks[0];
+  if (!tickCache || !track || tickCache.masterBars[0]?.masterBar.score !== track.score) return null;
+  if (timeline?.tickCache !== tickCache || timeline.track !== track) timeline = { tickCache, track, ...buildTimeline(tickCache, track) };
+  return timeline;
+}
+
+/** A settings box's count of previous / next events (0 = off). */
+function fretboardEventCount(id) {
+  return Math.max(0, Math.floor(Number(element(id).value) || 0));
+}
+
+/**
+ * Marks for playback tick `tick`: solid = every note sounding; faint = the previous and next events
+ * (counts from the settings boxes) around the latest event started. The latest event counts as
+ * previous once it has stopped sounding.
+ */
+function playbackMarks(tick) {
+  const line = currentTimeline();
+  if (!line) return [];
+  const sounding = line.sounds.filter((sound) => sound.start <= tick && tick < sound.end).flatMap((sound) => sound.spots);
+  let latest = -1;
+  while (latest + 1 < line.events.length && line.events[latest + 1].start <= tick) latest += 1;
+  const lastFinished = latest >= 0 && line.events[latest].end > tick ? latest - 1 : latest;
+  const previousCount = fretboardEventCount('fretboard-previous');
+  const nearby = [
+    ...line.events.slice(Math.max(lastFinished - previousCount + 1, 0), lastFinished + 1),
+    ...line.events.slice(latest + 1, latest + 1 + fretboardEventCount('fretboard-next')),
+  ];
+  return [
+    ...nearby.flatMap((event) => event.spots).map((spot) => ({ ...spot, faint: true })),
+    ...sounding.map((spot) => ({ ...spot, faint: false })),
+  ];
+}
+
+/**
+ * Marks for what is highlighted, or null if nothing is: a passage's selected notes, or the plain
+ * tab's last click or drag (every beat between, all voices).
+ */
+function selectionMarks() {
+  if (shownPassage()) {
+    if (!state.selection.length) return null;
+    const { firstBeatOfNote } = currentBeatMap();
+    return state.selection.flatMap((index) => (firstBeatOfNote[index] ? beatSpots(firstBeatOfNote[index]) : []));
+  }
+  const dragged = state.draggedBeats;
+  const track = api.tracks[0];
+  if (state.view?.kind !== 'song' || !dragged || dragged.first.voice.bar.staff.track !== track) return null;
+  const [from, to] = [dragged.first, dragged.last].map((beat) => beat.absoluteDisplayStart).sort((a, b) => a - b);
+  const beats = track.staves[0].bars.flatMap((bar) => bar.voices.flatMap((voice) => voice.beats));
+  return beats.filter((beat) => beat.absoluteDisplayStart >= from && beat.absoluteDisplayStart <= to).flatMap(beatSpots);
+}
+
+/** While playing: playback marks. Otherwise the highlighted notes, or (nothing highlighted) the picture where playback stopped. */
+function fretboardMarks(tick) {
+  if (api.playerState !== alphaTab.synth.PlayerState.Playing) {
+    const selected = selectionMarks();
+    if (selected) return selected.map((spot) => ({ ...spot, faint: false }));
+  }
+  return playbackMarks(tick);
 }
 
 /** Track dropdown = the GP file's tracks; realisation dropdown = the run's realisations + the annotation. "---" marks the one not shown. */
@@ -330,7 +451,7 @@ async function openFile(path, trackIndex = 0, searched = []) {
   if (!confirmDiscardAnnotation('Open another file')) return false;
   api.stop();
   if (!(await loadSong(path, trackIndex, searched))) return false;
-  Object.assign(state, { run: null, annotation: null, view: { kind: 'song' }, selection: [] });
+  Object.assign(state, { run: null, annotation: null, view: { kind: 'song' }, selection: [], draggedBeats: null });
   fillRunBar(null);
   renderView();
   return true;
@@ -481,12 +602,28 @@ try { document.body.classList.toggle('sidebar-hidden', localStorage.getItem('gri
 
 /** Open or close the fretboard under the tab; remembered in this browser. */
 function setFretboardShown(shown) {
-  element('fretboard').hidden = !shown;
+  element('fretboard-panel').hidden = !shown;
   try { localStorage.setItem('gripFretboardShown', shown ? '1' : '0'); } catch { /* storage blocked: not remembered */ }
   updateGuitar();
 }
-element('fretboard-toggle').onclick = () => setFretboardShown(element('fretboard').hidden);
-try { element('fretboard').hidden = localStorage.getItem('gripFretboardShown') !== '1'; } catch { /* storage blocked */ }
+element('fretboard-toggle').onclick = () => setFretboardShown(element('fretboard-panel').hidden);
+try { element('fretboard-panel').hidden = localStorage.getItem('gripFretboardShown') !== '1'; } catch { /* storage blocked */ }
+
+// Previous / next event counts: remembered in this browser, redrawn on change
+for (const id of ['fretboard-previous', 'fretboard-next']) {
+  try { element(id).value = localStorage.getItem(`grip-${id}`) ?? element(id).value; } catch { /* storage blocked */ }
+  element(id).oninput = () => {
+    try { localStorage.setItem(`grip-${id}`, element(id).value); } catch { /* storage blocked: not remembered */ }
+    updateGuitar();
+  };
+}
+
+// The fretboard follows play / pause and the playback position. Kept last: alphaTab calls a new player
+// listener at once, and updateGuitar needs everything above to exist by then. (No midiLoaded listener:
+// in alphaTab 1.8.4 adding one loops forever in the worker player's loadedMidiInfo getter; the playing
+// order is ready anyway once renderScore returns.)
+api.playerStateChanged.on(() => updateGuitar());
+api.playerPositionChanged.on((event) => updateGuitar(event.currentTick));
 
 // ---- Start: file picker, empty note panel ----
 

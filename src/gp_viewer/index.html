@@ -53,8 +53,14 @@
     <button id="save-button" disabled>Save</button>
   </div>
   <div id="viewport"><div id="score"></div><div id="markers"></div></div>
-  <!-- Drawn by guitar_neck.mjs; hidden until the Fretboard button opens it -->
-  <div id="fretboard" hidden></div>
+  <!-- Fretboard panel, hidden until the Fretboard button opens it; guitar_neck.mjs draws #fretboard -->
+  <div id="fretboard-panel" hidden>
+    <div id="fretboard-settings" title="Events (a note, or a chord in the plain tab) shown faint around what is playing; 0 = off">
+      <label>previous <input type="number" id="fretboard-previous" min="0" value="4"></label>
+      <label>next <input type="number" id="fretboard-next" min="0" value="4"></label>
+    </div>
+    <div id="fretboard"></div>
+  </div>
 </main>
 <aside id="note-panel"></aside>
 

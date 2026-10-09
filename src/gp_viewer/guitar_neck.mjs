@@ -1,6 +1,6 @@
 // GRIP GP viewer, guitar neck: the tuning label and the fretboard drawing.
-// Knows nothing about the rest of the page: callers pass in a tuning and a fret count, and later
-// features add their own inputs (e.g. notes to mark) to drawFretboard's options.
+// Knows nothing about the rest of the page: callers pass in a tuning, a fret count and the spots
+// to mark; later features add their own inputs to drawFretboard's options.
 // A tuning is open-string MIDI pitches, string 1 (highest) first, as alphaTab, run files and manifests store it.
 // Colours and line widths live in viewer.css (the fretboard-* classes).
 
@@ -15,6 +15,10 @@ const STRING_GAP = 18;
 const TOP_MARGIN = 10;
 const BOTTOM_MARGIN = 20;
 const RIGHT_MARGIN = 10;
+// Marks: a dot in the fret, or (open string) a ring around the string name at the nut
+const MARK_RADIUS = 6;
+const OPEN_MARK_X = LABEL_WIDTH - 14;
+const OPEN_MARK_RADIUS = 9;
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 /** A pitch's note name without octave, flats for the black keys (e.g. 63 → "Eb"). */
@@ -36,15 +40,17 @@ function svgElement(tag, attributes, text = null) {
 }
 
 /**
- * Draw an empty fretboard into `container`, replacing what is there: string 1 on top as in tab,
- * each string named by its open note at the nut, frets 1 to `highestFret` evenly spaced, inlay dots.
+ * Draw a fretboard into `container`, replacing what is there: string 1 on top as in tab, each string
+ * named by its open note at the nut, frets 1 to `highestFret` evenly spaced, inlay dots, and marks.
  *
  * Args:
  *   container: The element to draw into.
  *   options.tuning: Open-string MIDI pitches, string 1 first; one line is drawn per string.
  *   options.highestFret: How many frets the neck has.
+ *   options.marks: Spots to mark, [{ string, fret, faint }] (string 1 = highest, fret 0 = open string).
+ *     Faint marks are drawn first, so a solid mark on the same spot shows on top; spots off the neck are skipped.
  */
-export function drawFretboard(container, { tuning, highestFret }) {
+export function drawFretboard(container, { tuning, highestFret, marks = [] }) {
   const stringCount = tuning.length;
   const nutX = LABEL_WIDTH;
   const endX = nutX + highestFret * FRET_WIDTH;
@@ -85,5 +91,16 @@ export function drawFretboard(container, { tuning, highestFret }) {
     svg.append(svgElement('line', { class: 'fretboard-string', x1: nutX, y1: y, x2: endX, y2: y, 'stroke-width': width }));
     svg.append(svgElement('text', { class: 'fretboard-string-name', x: nutX - 8, y: y + 4 }, noteName(pitch)));
   });
+
+  // Marks: faint first, solid on top
+  const marksInDrawingOrder = [...marks.filter((mark) => mark.faint), ...marks.filter((mark) => !mark.faint)];
+  for (const { string, fret, faint } of marksInDrawingOrder) {
+    if (string < 1 || string > stringCount || fret < 0 || fret > highestFret) continue;
+    const y = topY + (string - 1) * STRING_GAP;
+    const faintClass = faint ? ' fretboard-mark-faint' : '';
+    svg.append(fret === 0
+      ? svgElement('circle', { class: `fretboard-open-mark${faintClass}`, cx: OPEN_MARK_X, cy: y, r: OPEN_MARK_RADIUS })
+      : svgElement('circle', { class: `fretboard-mark${faintClass}`, cx: fretCentreX(fret), cy: y, r: MARK_RADIUS }));
+  }
   container.replaceChildren(svg);
 }

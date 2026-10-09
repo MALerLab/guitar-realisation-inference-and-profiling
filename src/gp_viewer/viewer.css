@@ -56,7 +56,12 @@ body.sidebar-hidden #sidebar { display: none; }
 #save-choice[hidden] { display: none; }
 #save-dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 12px 0 0; }
 /* Fretboard (guitar_neck.mjs): under the tab, toggled by the toolbar button */
-#fretboard { border-top: 1px solid #ccc; background: #fff; padding: 6px 8px; }
+#fretboard-panel { display: flex; gap: 10px; align-items: center; border-top: 1px solid #ccc; background: #fff; padding: 6px 8px; }
+#fretboard-panel[hidden] { display: none; }
+#fretboard-settings { display: flex; flex-direction: column; gap: 4px; color: #555; font-size: 12px; }
+#fretboard-settings label { display: flex; justify-content: space-between; gap: 6px; }
+#fretboard-settings input { width: 46px; padding: 2px; }
+#fretboard { flex: 1; min-width: 0; }
 #fretboard svg { display: block; width: 100%; height: auto; max-height: 220px; }
 .fretboard-wood { fill: #f1e4cf; }
 .fretboard-dot { fill: #cdb895; }
@@ -65,3 +70,7 @@ body.sidebar-hidden #sidebar { display: none; }
 .fretboard-string { stroke: #555; }
 .fretboard-string-name { font: 12px ui-monospace, monospace; fill: #333; text-anchor: end; }
 .fretboard-fret-number { font: 10px system-ui, sans-serif; fill: #888; text-anchor: middle; }
+/* Marks: what sounds now or is highlighted (same orange as the selection boxes); faint = previous / next events */
+.fretboard-mark { fill: #e05a00; }
+.fretboard-open-mark { fill: none; stroke: #e05a00; stroke-width: 2.5; }
+.fretboard-mark-faint { fill-opacity: 0.35; stroke-opacity: 0.35; }
