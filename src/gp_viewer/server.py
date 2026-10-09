@@ -27,7 +27,7 @@ import yaml
 
 from src.calibration.reference_set import (annotation_problems, check_save, is_safe_file_name, reference_name_base,
                                            save_annotation, source_tab_draft)
-from src.optimiser.guitar_neck import GuitarSetup, candidate_positions
+from src.optimiser.guitar_neck import GuitarSetup, candidate_positions, load_guitar_setup
 from src.optimiser.run_optimiser import (load_run_config, load_source_passage, passage_to_dict, run_search,
                                          save_run_record)
 
@@ -74,8 +74,8 @@ def load_config(config_path: Path) -> dict[str, Any]:
 
 
 def load_track_table(datasets: dict[str, dict[str, Any]]) -> pd.DataFrame:
-    """Every dataset's tracks joined with song-level columns, plus each file's full path and one
-    lowercase search string per row.
+    """Every dataset's tracks joined with song-level columns, plus each file's full path, its
+    lowercase file name with and without extension, and one lowercase search string per row.
 
     Args:
         datasets: The config's datasets (name → root, tracks_manifest, songs_manifest).
@@ -89,6 +89,9 @@ def load_track_table(datasets: dict[str, dict[str, Any]]) -> pd.DataFrame:
         table["gp_path"] = [str(dataset["root"] / path) for path in table["path"]]
         tables.append(table)
     table = pd.concat(tables, ignore_index=True)
+    # File name with and without extension, for the path box's file-name lookup
+    table["file_name"] = [Path(path).name.lower() for path in table["path"]]
+    table["file_stem"] = [Path(name).stem for name in table["file_name"]]
     # One string to substring-match against: artist, title, track name, path
     table["search_text"] = (
         table[["artist", "title_display", "track_name", "path"]].fillna("").agg(" ".join, axis=1).str.lower()
@@ -97,8 +100,9 @@ def load_track_table(datasets: dict[str, dict[str, Any]]) -> pd.DataFrame:
 
 
 def search_tracks(table: pd.DataFrame, query: str, datasets: list[str], vocal_or_melody_only: bool,
-                  max_rows: int) -> dict[str, Any]:
-    """Filter the track table by dataset, words in `query` (all must match) and the vocal/melody flag.
+                  max_rows: int, file_name: str = "") -> dict[str, Any]:
+    """Filter the track table by dataset, words in `query` (all must match), the vocal/melody flag
+    and, if given, an exact file name.
 
     Args:
         table: output of load_track_table.
@@ -106,16 +110,24 @@ def search_tracks(table: pd.DataFrame, query: str, datasets: list[str], vocal_or
         datasets: dataset names to keep (the page's ticked boxes); empty keeps nothing.
         vocal_or_melody_only: keep only tracks whose name says vocal or melody.
         max_rows: most rows returned; the total match count is reported separately.
+        file_name: keep only files called exactly this, with or without extension, any letter case
+            (the path box's lookup); empty keeps all.
+
+    Returns:
+        {"total": matching tracks, "file_count": distinct files among them, "rows": up to max_rows tracks}.
     """
     matches = table[table["dataset"].isin(datasets)]
     if vocal_or_melody_only:
         matches = matches[matches["name_says_vocal_or_melody"]]
     for word in query.lower().split():
         matches = matches[matches["search_text"].str.contains(word, regex=False)]
-    rows = matches.drop(columns="search_text").head(max_rows)
+    if file_name.strip():
+        name = file_name.strip().lower()
+        matches = matches[(matches["file_name"] == name) | (matches["file_stem"] == name)]
+    rows = matches.drop(columns=["search_text", "file_name", "file_stem"]).head(max_rows)
     # Missing values (e.g. no parse_error) become JSON null
     rows = rows.astype(object).where(rows.notna(), None)
-    return {"total": len(matches), "rows": rows.to_dict(orient="records")}
+    return {"total": len(matches), "file_count": matches["gp_path"].nunique(), "rows": rows.to_dict(orient="records")}
 
 
 def resolve_inside(root: Path, requested: str) -> Path | None:
@@ -255,24 +267,27 @@ class ViewerHandler(BaseHTTPRequestHandler):
 
     def send_page_config(self) -> None:
         """Tell the page how alphaTab should read files, where the soundfont is, the Run button's
-        default k, the datasets it can search and where reference passages are saved."""
+        default k, the neck's fret count (the optimiser's guitar), the datasets it can search and
+        where reference passages are saved."""
         alphatab = self.config["alphatab"]
         run_config = load_run_config(self.config["paths"]["optimiser_run_config"])
         self.send_json({
             "text_encoding": alphatab["text_encoding"], "soundfont_url": f"/alphatab/{alphatab['soundfont']}",
             "k_best": run_config["search"]["k_best"],
+            "highest_fret": load_guitar_setup(run_config["guitar_setup"]).highest_fret,
             "datasets": [{"name": name, "label": dataset["label"]} for name, dataset in self.config["datasets"].items()],
             "reference_set_folder": str(self.config["paths"]["reference_set_folder"]),
         })
 
     def send_track_search(self, params: dict[str, str]) -> None:
-        """Return manifest tracks matching the page's search box, dataset boxes and vocal/melody box."""
+        """Return manifest tracks matching the page's search box, dataset boxes and vocal/melody box (or the path box's file name)."""
         result = search_tracks(
             self.track_table,
             query=params.get("query", ""),
             datasets=params.get("datasets", "").split(","),
             vocal_or_melody_only=params.get("vocal_or_melody_only") == "1",
             max_rows=self.config["track_list"]["max_rows"],
+            file_name=params.get("file_name", ""),
         )
         self.send_json(result)
 

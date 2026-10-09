@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GRIP GP viewer</title>
-<!-- Styles: viewer.css · script: viewer.mjs (imports annotate.mjs, file_picker.mjs, run_to_tex.mjs) -->
+<!-- Styles: viewer.css · script: viewer.mjs (imports annotate.mjs, file_picker.mjs, guitar_neck.mjs, run_to_tex.mjs) -->
 <link rel="stylesheet" href="/viewer.css">
 </head>
 <body>
@@ -33,9 +33,11 @@
     <button id="sidebar-toggle" title="Hide / show the file panel">☰</button>
     <span id="song-title">No file open</span>
     <label>Track <select id="track-select" disabled></select></label>
+    <span id="tuning" title="Open strings of what is shown, lowest string first"></span>
     <label>Realisation <select id="realisation-select" disabled></select></label>
     <button id="play-pause" disabled>Play</button>
     <button id="stop" disabled>Stop</button>
+    <button id="fretboard-toggle" title="Show / hide the fretboard">Fretboard</button>
     <span id="status"></span>
   </div>
   <div id="run-bar">
@@ -51,6 +53,8 @@
     <button id="save-button" disabled>Save</button>
   </div>
   <div id="viewport"><div id="score"></div><div id="markers"></div></div>
+  <!-- Drawn by guitar_neck.mjs; hidden until the Fretboard button opens it -->
+  <div id="fretboard" hidden></div>
 </main>
 <aside id="note-panel"></aside>
 

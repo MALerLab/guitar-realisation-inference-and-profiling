@@ -11,10 +11,13 @@ export function setupFilePicker(page) {
   ({ element, pageConfig, openFile } = page);
   datasetLabels = Object.fromEntries(pageConfig.datasets.map(({ name, label }) => [name, label]));
 
+  // A path with a folder opens directly; a bare file name is looked up first (openByFileName)
   element('path-form').onsubmit = (event) => {
     event.preventDefault();
     const path = element('path-input').value.trim();
-    if (path) openFile(path, 0, tickedDatasets());
+    if (!path) return;
+    if (path.includes('/')) openFile(path, 0, tickedDatasets());
+    else openByFileName(path);
   };
 
   // Re-search shortly after typing stops, and on every toggle
@@ -66,14 +69,36 @@ function buildTrackRow(row) {
   return item;
 }
 
-/** Ask the server for manifest tracks matching the search box + boxes, and redraw the list. */
-async function refreshTrackList() {
-  const params = new URLSearchParams({
-    query: element('search-input').value,
-    datasets: tickedDatasets().join(','),
-    vocal_or_melody_only: element('vocal-only').checked ? '1' : '0',
-  });
-  const result = await (await fetch(`/api/tracks?${params}`)).json();
-  element('result-count').textContent = `${result.total} tracks` + (result.total > result.rows.length ? ` (showing ${result.rows.length})` : '');
+/** Ask the server for manifest tracks in the ticked datasets matching `filters` (see server.search_tracks). */
+async function fetchTracks(filters) {
+  const params = new URLSearchParams({ datasets: tickedDatasets().join(','), ...filters });
+  return (await fetch(`/api/tracks?${params}`)).json();
+}
+
+/** Redraw the track list with a server answer, under a count line. */
+function showTrackList(result, countText) {
+  element('result-count').textContent = countText;
   element('track-list').replaceChildren(...result.rows.map(buildTrackRow));
+}
+
+/** Tracks matching the search box + boxes. */
+async function refreshTrackList() {
+  const result = await fetchTracks({ query: element('search-input').value, vocal_or_melody_only: element('vocal-only').checked ? '1' : '0' });
+  showTrackList(result, `${result.total} tracks` + (result.total > result.rows.length ? ` (showing ${result.rows.length})` : ''));
+}
+
+/**
+ * The path box holds a bare file name (with or without extension): open the one file in the ticked
+ * datasets called that, or list the tracks of several to click. No such file: try it as a path
+ * (a file directly in a dataset folder), which reports the server's "no file" message if that fails too.
+ */
+async function openByFileName(fileName) {
+  const result = await fetchTracks({ file_name: fileName });
+  if (result.file_count === 1) {
+    openFile(result.rows[0].gp_path, 0);
+  } else if (result.file_count === 0) {
+    openFile(fileName, 0, tickedDatasets());
+  } else {
+    showTrackList(result, `${result.file_count} files named "${fileName}" (${result.total} tracks): click one`);
+  }
 }

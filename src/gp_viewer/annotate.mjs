@@ -284,28 +284,47 @@ function neighbouringPosition(positions, choice, step) {
 }
 
 /**
+ * Where a string move (step −1 towards string 1, +1 away) takes each selected note: passage index → position.
+ * The selection moves as one block: null (with a status message) if any note has no string that way.
+ */
+function blockMoveTargets(step) {
+  const { passage, positions, choices } = state.annotation;
+  const targets = new Map();
+  for (const index of state.selection) {
+    if (passage.notes[index].pitch === null) continue;
+    const position = neighbouringPosition(positions[index], choices[index], step);
+    if (!position) {
+      statusLabel.textContent = `nothing moved: note ${index + 1} has no string ${step < 0 ? 'above (towards string 1)' : 'below (away from string 1)'}`;
+      return null;
+    }
+    targets.set(index, position);
+  }
+  return targets;
+}
+
+/**
  * Apply one change to every selected note: { position }, { move: ±1 }, { finger }, { stroke } (or finger + stroke).
- * Fingers must fit the fret (0 = open only on fret 0); notes where a change can't apply are skipped and counted.
+ * A move shifts the whole selection one string or nothing (see blockMoveTargets), and moved notes' fingers
+ * become don't care (the shape changes across strings 3–2). Fingers must fit the fret (0 = open only on
+ * fret 0); notes where a finger can't apply are skipped and counted.
  */
 function applyEdit(change) {
   if (state.view?.kind !== 'annotation') return;
-  const { passage, positions, choices } = state.annotation;
+  const { passage, choices } = state.annotation;
+  const moveTargets = 'move' in change ? blockMoveTargets(change.move) : null;
+  if ('move' in change && !moveTargets) return;
   let changed = 0;
   let skipped = 0;
   for (const index of state.selection) {
     if (passage.notes[index].pitch === null) continue;
     const choice = { ...choices[index] };
-    let position = change.position ?? null;
-    if ('move' in change) position = neighbouringPosition(positions[index], choice, change.move);
+    const position = moveTargets ? moveTargets.get(index) : change.position ?? null;
     if (position) {
       choice.string = position.string;
       choice.fret = position.fret;
-      // An open string is always finger 0; leaving it drops the finger to don't care
+      // An open string is always finger 0; a moved note, or one leaving an open string, gets don't care
       if (choice.fret === 0) choice.finger = 0;
-      else if (choice.finger === 0) choice.finger = null;
-    } else if ('move' in change) {
-      skipped += 1;
-      continue;
+      else if (moveTargets || choice.finger === 0) choice.finger = null;
     }
     if ('finger' in change) {
       const fits = change.finger === null || (choice.fret !== null && (change.finger === 0) === (choice.fret === 0));
@@ -318,7 +337,7 @@ function applyEdit(change) {
       changed += 1;
     }
   }
-  statusLabel.textContent = skipped ? `${skipped} note(s) skipped (no string that way, or finger doesn't fit the fret: 5 = open strings only)` : '';
+  statusLabel.textContent = skipped ? `${skipped} note(s) skipped (finger doesn't fit the fret: 5 = open strings only)` : '';
   if (!changed) return;
   state.annotation.dirty = true;
   renderView(true);

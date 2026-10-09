@@ -1,11 +1,13 @@
 // GRIP GP viewer, main script: alphaTab, the page state, drawing what is shown, the toolbar
 // (tracks, realisations, Run, Edit) and opening GP files and runs.
 // annotate.mjs (note panel, selecting, editing, Save) and file_picker.mjs (path box, track list)
-// get what they need from here through one `page` object when the page starts.
+// get what they need from here through one `page` object when the page starts; guitar_neck.mjs
+// (tuning label, fretboard) only gets a tuning and a fret count.
 import * as alphaTab from '/alphatab/alphaTab.mjs';
 import { annotationStrokeLetter, choicesToTex } from '/run_to_tex.mjs';
 import { setupAnnotate } from '/annotate.mjs';
 import { setupFilePicker } from '/file_picker.mjs';
+import { drawFretboard, tuningText } from '/guitar_neck.mjs';
 
 const element = (id) => document.getElementById(id);
 const statusLabel = element('status');
@@ -15,7 +17,7 @@ const playPauseButton = element('play-pause');
 const stopButton = element('stop');
 const viewport = element('viewport');
 
-// Encoding, soundfont, default k, the datasets and the reference folder come from the server config
+// Encoding, soundfont, default k, the neck's fret count, the datasets and the reference folder come from the server config
 const pageConfig = await (await fetch('/api/config')).json();
 element('k-best').value = pageConfig.k_best;
 
@@ -222,6 +224,7 @@ function renderView(keepScroll = false) {
     api.renderScore(score, [0]);
   }
   updateTitle();
+  updateGuitar();
   updateDropdowns();
   updateButtons();
   annotate.updatePanel();
@@ -250,6 +253,27 @@ function updateTitle() {
   const songTitle = song ? [song.artist, song.title].filter(Boolean).join(' — ') || '(untitled)' : null;
   const passageName = shownPassage()?.passage.name;
   element('song-title').textContent = (state.view?.kind === 'song' ? songTitle : passageName ?? songTitle) ?? 'No file open';
+}
+
+/** The guitar of what is shown: { tuning (string 1 first), highestFret }, or null (nothing open, or a track without strings).
+ *  A GP file shows its track's own tuning; a passage shows its run's or annotation's (tuning shift included). */
+function shownGuitar() {
+  const shown = shownPassage();
+  const guitar = shown
+    ? { tuning: shown.passage.guitar.tuning, highestFret: shown.passage.guitar.highest_fret }
+    : state.view?.kind === 'song'
+      ? { tuning: state.song.score.tracks[state.song.trackIndex].staves[0].tuning, highestFret: pageConfig.highest_fret }
+      : null;
+  return guitar?.tuning.length ? guitar : null;
+}
+
+/** The toolbar's tuning label and, while it is open, the fretboard. */
+function updateGuitar() {
+  const guitar = shownGuitar();
+  element('tuning').textContent = guitar ? tuningText(guitar.tuning) : '';
+  const fretboard = element('fretboard');
+  if (!guitar) fretboard.replaceChildren();
+  else if (!fretboard.hidden) drawFretboard(fretboard, guitar);
 }
 
 /** Track dropdown = the GP file's tracks; realisation dropdown = the run's realisations + the annotation. "---" marks the one not shown. */
@@ -454,6 +478,15 @@ function setSidebarHidden(hidden) {
 }
 element('sidebar-toggle').onclick = () => setSidebarHidden(!document.body.classList.contains('sidebar-hidden'));
 try { document.body.classList.toggle('sidebar-hidden', localStorage.getItem('gripSidebarHidden') === '1'); } catch { /* storage blocked */ }
+
+/** Open or close the fretboard under the tab; remembered in this browser. */
+function setFretboardShown(shown) {
+  element('fretboard').hidden = !shown;
+  try { localStorage.setItem('gripFretboardShown', shown ? '1' : '0'); } catch { /* storage blocked: not remembered */ }
+  updateGuitar();
+}
+element('fretboard-toggle').onclick = () => setFretboardShown(element('fretboard').hidden);
+try { element('fretboard').hidden = localStorage.getItem('gripFretboardShown') !== '1'; } catch { /* storage blocked */ }
 
 // ---- Start: file picker, empty note panel ----
 
