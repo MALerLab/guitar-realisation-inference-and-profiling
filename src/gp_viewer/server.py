@@ -33,9 +33,10 @@ from src.optimiser.run_optimiser import (load_run_config, load_source_passage, p
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "configs/gp_viewer/server_v0.2.yaml"
-PAGE_FILE = Path(__file__).resolve().parent / "index.html"
-# The page's run file → alphaTex converter (an ES module the page imports)
-RUN_TO_TEX_FILE = Path(__file__).resolve().parent / "run_to_tex.mjs"
+PAGE_FOLDER = Path(__file__).resolve().parent
+PAGE_FILE = PAGE_FOLDER / "index.html"
+# The page's own scripts and styles (viewer.mjs, run_to_tex.mjs, viewer.css…), served from PAGE_FOLDER
+PAGE_ASSET_EXTENSIONS = (".mjs", ".css")
 
 # Columns the page's track list shows; song-level ones come from the songs manifest
 TRACK_COLUMNS = ["dataset", "path", "track_index", "track_name", "guitar_or_bass", "name_says_vocal_or_melody"]
@@ -203,7 +204,7 @@ def guess_content_type(path: Path) -> str:
 
 
 class ViewerHandler(BaseHTTPRequestHandler):
-    """GET routes: / (page), /run_to_tex.mjs, /alphatab/<file>, /api/config, /api/tracks, /api/file,
+    """GET routes: / (page), /<page script or style>, /alphatab/<file>, /api/config, /api/tracks, /api/file,
     /api/runs, /api/run, /api/positions. POST routes: see do_POST."""
 
     def __init__(self, *args: Any, config: dict[str, Any], track_table: pd.DataFrame, **kwargs: Any):
@@ -217,8 +218,8 @@ class ViewerHandler(BaseHTTPRequestHandler):
         params = {name: values[0] for name, values in parse_qs(url.query).items()}
         if url.path in ("/", "/index.html"):
             self.send_file(PAGE_FILE)
-        elif url.path == "/run_to_tex.mjs":
-            self.send_file(RUN_TO_TEX_FILE)
+        elif url.path.endswith(PAGE_ASSET_EXTENSIONS) and url.path.count("/") == 1:
+            self.send_page_asset(url.path.removeprefix("/"))
         elif url.path.startswith("/alphatab/"):
             self.send_alphatab_file(url.path.removeprefix("/alphatab/"))
         elif url.path == "/api/config":
@@ -235,6 +236,14 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self.send_run_positions(params.get("name", ""))
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
+
+    def send_page_asset(self, name: str) -> None:
+        """Serve one of the page's scripts or styles, only from directly inside PAGE_FOLDER."""
+        path = resolve_inside(PAGE_FOLDER, name)
+        if path is None or path.parent != PAGE_FOLDER:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self.send_file(path)
 
     def send_alphatab_file(self, relative_path: str) -> None:
         """Serve one file from alphaTab's dist folder (script, worker, font, soundfont)."""

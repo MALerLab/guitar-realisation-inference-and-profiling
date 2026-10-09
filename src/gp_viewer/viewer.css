@@ -1,0 +1,54 @@
+/* GRIP GP viewer styles (the page is index.html) */
+* { box-sizing: border-box; }
+body { margin: 0; height: 100vh; display: flex; font: 14px system-ui, sans-serif; color: #222; background: #f4f4f4; }
+#sidebar { width: 360px; display: flex; flex-direction: column; border-right: 1px solid #ccc; background: #fff; }
+body.sidebar-hidden #sidebar { display: none; }
+#sidebar form, #sidebar .controls { padding: 8px; border-bottom: 1px solid #ddd; display: flex; gap: 6px; align-items: center; }
+#sidebar input[type=text], #run-select { flex: 1; padding: 5px; min-width: 0; }
+#sidebar #filter-boxes { flex-direction: column; align-items: flex-start; gap: 2px; }
+#filter-boxes .vocal-box { margin-top: 4px; }
+#result-count { padding: 4px 8px; color: #666; font-size: 12px; }
+#track-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+#track-list li { padding: 6px 8px; border-bottom: 1px solid #eee; cursor: pointer; }
+#track-list li:hover { background: #eef4ff; }
+#track-list li.selected { background: #d6e6ff; }
+.song { font-weight: 600; }
+.track, .file-path { color: #555; font-size: 12px; }
+.file-path { color: #999; word-break: break-all; }
+.unreadable { color: #b00; font-size: 12px; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#toolbar, #run-bar { padding: 6px 8px; display: flex; gap: 8px; align-items: center; background: #fff; border-bottom: 1px solid #ccc; flex-wrap: wrap; }
+#run-bar input[type=number] { width: 58px; padding: 3px; }
+#run-bar .spacer { flex: 1; }
+#song-title { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 120px; }
+#status { color: #666; font-size: 12px; }
+#viewport { flex: 1; overflow-y: auto; background: #fff; position: relative; }
+/* alphaTab playback cursor + highlighted beat */
+.at-cursor-bar { background: rgba(255, 242, 0, 0.25); }
+.at-cursor-beat { background: rgba(64, 64, 255, 0.75); width: 3px; }
+.at-highlight * { fill: #0078ff; stroke: #0078ff; }
+/* Boxes drawn around the selected notes */
+.note-marker { position: absolute; border: 2px solid #e05a00; border-radius: 3px; pointer-events: none; }
+#note-panel { width: 290px; overflow-y: auto; border-left: 1px solid #ccc; background: #fff; padding: 8px; }
+#note-panel h2 { font-size: 15px; margin: 0 0 8px; }
+#note-panel h3 { font-size: 13px; margin: 12px 0 4px; color: #555; }
+#note-panel .hint { color: #888; }
+#note-panel .warning { color: #b00; }
+#note-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+#note-panel dt { color: #666; }
+#note-panel dd { margin: 0; }
+#note-panel ul { list-style: none; margin: 0; padding: 0; }
+#note-panel li { padding: 2px 6px; border-radius: 3px; }
+#note-panel li.chosen, #note-panel button.chosen { background: #ffe3cc; font-weight: 600; }
+#note-panel .buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+#note-panel .buttons button { padding: 3px 7px; }
+#note-panel .keys { margin-top: 16px; color: #777; font-size: 12px; line-height: 1.6; }
+#save-dialog { width: 460px; }
+#save-dialog label { display: block; margin: 8px 0 2px; color: #555; }
+#save-dialog input { width: 100%; padding: 5px; }
+#save-dialog .folder { color: #777; font-size: 12px; word-break: break-all; }
+#save-summary { margin: 10px 0; }
+#save-error { color: #b00; white-space: pre-wrap; }
+#save-choice { display: flex; gap: 8px; margin: 6px 0; }
+#save-choice[hidden] { display: none; }
+#save-dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 12px 0 0; }
