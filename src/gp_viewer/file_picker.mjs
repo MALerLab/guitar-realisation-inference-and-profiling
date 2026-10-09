@@ -2,7 +2,7 @@
 // searchable list (manifest rows from the server, one page at a time). viewer.mjs calls setupFilePicker once at start.
 
 // What viewer.mjs shares, set once by setupFilePicker
-let element, pageConfig, openFile;
+let element, pageConfig, openFile, remember, recall;
 // Dataset name → its label, for the list rows
 let datasetLabels;
 // What the list shows: { kind: 'songs' | 'tracks', filters, page, countText(result) }; paging re-asks with another page
@@ -15,8 +15,8 @@ const pageNavs = [];
  *
  * Returns { clearListSelection } for viewer.mjs to call when something else is opened.
  */
-export function setupFilePicker(page) {
-  ({ element, pageConfig, openFile } = page);
+export function setupFilePicker(viewer) {
+  ({ element, pageConfig, openFile, remember, recall } = viewer);
   datasetLabels = Object.fromEntries(pageConfig.datasets.map(({ name, label }) => [name, label]));
 
   // A path with a folder opens directly; a bare file name is looked up first (openByFileName)
@@ -29,10 +29,10 @@ export function setupFilePicker(page) {
   };
 
   // Songs / tracks switch, remembered in this browser
-  try { setListMode(localStorage.getItem('gripListMode') ?? 'tracks'); } catch { /* storage blocked */ }
+  setListMode(recall('listMode', 'tracks'));
   for (const radio of document.querySelectorAll('input[name=list-mode]')) {
     radio.onchange = () => {
-      try { localStorage.setItem('gripListMode', listMode()); } catch { /* storage blocked: not remembered */ }
+      remember('listMode', listMode());
       searchFromFirstPage();
     };
   }
@@ -175,22 +175,21 @@ function updatePageNav(nav, result) {
 // ---- Path box: bare file names ----
 
 /**
- * The path box holds a bare file name (with or without extension): open the one file in the ticked
- * datasets called that (on its first guitar track), or list the tracks of several to click. No such
- * file: try it as a path (a file directly in a dataset folder), which reports the server's "no file"
- * message if that fails too.
+ * The path box holds a bare file name (with or without extension): open the one song in the ticked
+ * datasets called that (on its first guitar track), or list several to click. No such song: try it
+ * as a path (a file directly in a dataset folder), which reports the server's "no file" message if
+ * that fails too.
  */
 async function openByFileName(fileName) {
-  const result = await fetchList('tracks', { file_name: fileName }, 1);
-  if (result.file_count === 1) {
-    const guitarTracks = result.rows.filter((row) => row.guitar_or_bass === 'guitar').map((row) => row.track_index);
-    openFile(result.rows[0].gp_path, guitarTracks.length ? Math.min(...guitarTracks) : 0);
-  } else if (result.file_count === 0) {
+  const result = await fetchList('songs', { file_name: fileName }, 1);
+  if (result.total === 1) {
+    openFile(result.rows[0].gp_path, result.rows[0].first_guitar_track);
+  } else if (result.total === 0) {
     openFile(fileName, 0, tickedDatasets());
   } else {
     showList({
-      kind: 'tracks', page: 1, filters: { file_name: fileName },
-      countText: (answer) => `${answer.file_count} files named "${fileName}" (${answer.total} tracks): click one`,
+      kind: 'songs', page: 1, filters: { file_name: fileName },
+      countText: (answer) => `${answer.total} songs named "${fileName}": click one`,
     });
   }
 }

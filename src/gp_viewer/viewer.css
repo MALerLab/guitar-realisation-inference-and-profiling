@@ -34,7 +34,7 @@ body.sidebar-hidden #sidebar { display: none; }
 /* alphaTab's drag selection (beats dragged over; also the Play range) */
 .at-selection div { background: rgba(64, 64, 255, 0.1); }
 /* Boxes drawn around the selected notes */
-.note-marker { position: absolute; border: 2px solid #e05a00; border-radius: 3px; pointer-events: none; }
+.selection-box { position: absolute; border: 2px solid #e05a00; border-radius: 3px; pointer-events: none; }
 #right-column { width: 290px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fff; }
 #note-panel { flex: 1; overflow-y: auto; padding: 8px; }
 #note-panel h2 { font-size: 15px; margin: 0 0 8px; }
@@ -70,7 +70,7 @@ body.sidebar-hidden #sidebar { display: none; }
 #save-choice { display: flex; gap: 8px; margin: 6px 0; }
 #save-choice[hidden] { display: none; }
 #save-dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 12px 0 0; }
-/* Fretboard (guitar_neck.mjs): under the tab, toggled by the toolbar button */
+/* Fretboard (fretboard.mjs): under the tab, toggled by the toolbar button */
 #fretboard-panel { display: flex; gap: 10px; align-items: center; border-top: 1px solid #ccc; background: #fff; padding: 6px 8px; }
 #fretboard-panel[hidden] { display: none; }
 #fretboard-settings { display: flex; flex-direction: column; gap: 4px; color: #555; font-size: 12px; }

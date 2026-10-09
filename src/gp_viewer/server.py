@@ -36,7 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "configs/gp_viewer/server_v0.2.yaml"
 PAGE_FOLDER = Path(__file__).resolve().parent
 PAGE_FILE = PAGE_FOLDER / "index.html"
-# The page's own scripts and styles (viewer.mjs, run_to_tex.mjs, viewer.css…), served from PAGE_FOLDER
+# The page's own scripts and styles (viewer.mjs, choices_to_tex.mjs, viewer.css…), served from PAGE_FOLDER
 PAGE_ASSET_EXTENSIONS = (".mjs", ".css")
 
 # Columns the page's track list shows; song-level ones come from the songs manifest
@@ -62,7 +62,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
     """Read the viewer config and resolve its paths.
 
     Args:
-        config_path: YAML file with server, datasets, paths, alphatab and track_list sections.
+        config_path: YAML file with server, datasets, paths, alphatab, browse_list and gp_files sections.
     """
     config = yaml.safe_load(config_path.read_text())
     config["paths"] = {name: resolve_config_path(value) for name, value in config["paths"].items()}
@@ -165,7 +165,7 @@ def one_page(matches: pd.DataFrame, page: int, page_size: int, columns: list[str
 
 
 def search_tracks(table: pd.DataFrame, filters: dict[str, Any], page: int, page_size: int) -> dict[str, Any]:
-    """One page of matching tracks (see filter_tracks and one_page), plus how many distinct files match.
+    """One page of matching tracks (see filter_tracks and one_page).
 
     Args:
         table: output of load_track_table.
@@ -175,7 +175,7 @@ def search_tracks(table: pd.DataFrame, filters: dict[str, Any], page: int, page_
     """
     matches = filter_tracks(table, **filters)
     columns = [column for column in matches.columns if column not in ("search_text", "file_name", "file_stem")]
-    return {**one_page(matches, page, page_size, columns), "file_count": matches["gp_path"].nunique()}
+    return one_page(matches, page, page_size, columns)
 
 
 def search_songs(track_table: pd.DataFrame, song_table: pd.DataFrame, filters: dict[str, Any], page: int,
@@ -359,12 +359,12 @@ class ViewerHandler(BaseHTTPRequestHandler):
 
     def send_track_search(self, params: dict[str, str]) -> None:
         """Return one page of manifest tracks matching the page's filters (see search_tracks)."""
-        page_size = self.config["track_list"]["page_size"]
+        page_size = self.config["browse_list"]["page_size"]
         self.send_json(search_tracks(self.track_table, self.search_filters(params), int(params.get("page", 1)), page_size))
 
     def send_song_search(self, params: dict[str, str]) -> None:
         """Return one page of songs with a track matching the page's filters (see search_songs)."""
-        page_size = self.config["track_list"]["page_size"]
+        page_size = self.config["browse_list"]["page_size"]
         self.send_json(search_songs(self.track_table, self.song_table, self.search_filters(params),
                                     int(params.get("page", 1)), page_size))
 
@@ -406,7 +406,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.send_file(path)
 
     def send_run_positions(self, name: str) -> None:
-        """Send every note's neck positions for one run file (see run_note_positions)."""
+        """Send every note's neck positions for one run file (see passage_note_positions)."""
         path = self.find_run_file(name)
         if path is None:
             self.send_error(HTTPStatus.NOT_FOUND, "no run file with that name")

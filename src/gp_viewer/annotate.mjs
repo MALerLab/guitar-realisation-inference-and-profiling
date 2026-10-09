@@ -1,10 +1,11 @@
 // GRIP GP viewer, annotate side: the note panel, selecting notes (click, drag, arrows), the edit
 // keys and buttons, and the Save box. viewer.mjs calls setupAnnotate once at start.
-import { annotationStrokeLetter } from '/run_to_tex.mjs';
+import { annotationStrokeLetter } from '/choices_to_tex.mjs';
+import { stringNumberOfNote } from '/fretboard.mjs';
 
 // What viewer.mjs shares (page state, alphaTab, drawing), set once by setupAnnotate
 let element, statusLabel, api, state, pageConfig, postJson;
-let renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns, updateGuitar;
+let renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, updateFretboard;
 let notePanel;
 
 // Stroke letters as run files write them → names; the run file's H is shown as z
@@ -25,24 +26,31 @@ const EDIT_KEYS = {
 /**
  * Take what viewer.mjs shares and wire up selecting, the edit keys and the Save box.
  *
- * Returns { updatePanel, drawMarkers } for viewer.mjs to call after each drawing.
+ * Returns { updatePanel, drawSelectionBoxes } for viewer.mjs to call after each drawing.
  */
-export function setupAnnotate(page) {
-  ({ element, statusLabel, api, state, pageConfig, postJson } = page);
-  ({ renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns, updateGuitar } = page);
+export function setupAnnotate(viewer) {
+  ({ element, statusLabel, api, state, pageConfig, postJson } = viewer);
+  ({ renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, updateFretboard } = viewer);
   notePanel = element('note-panel');
   setupSelecting();
   setupEditKeys();
   setupSaveBox();
-  return { updatePanel, drawMarkers };
+  return { updatePanel, drawSelectionBoxes };
 }
 
 // ---- Boxes around the selected notes ----
 
-/** Boxes around the selected notes (bounds come from alphaTab's layout of #score). */
-function drawMarkers() {
-  const markers = element('markers');
-  markers.replaceChildren();
+/** The drawn box of a passage note's first beat: its note head, or the whole beat for a rest (bounds from alphaTab's layout). */
+function noteBounds(beat, beatBounds) {
+  if (beat.isRest) return beatBounds.visualBounds;
+  const headBounds = beatBounds.notes?.find((bounds) => bounds.note === beat.notes[0])?.noteHeadBounds;
+  return headBounds ?? beatBounds.visualBounds;
+}
+
+/** Selection boxes: one around each selected note on the score. */
+function drawSelectionBoxes() {
+  const boxes = element('selection-boxes');
+  boxes.replaceChildren();
   if (!shownPassage() || !state.selection.length) return;
   const lookup = api.renderer.boundsLookup;
   const { firstBeatOfNote } = currentBeatMap();
@@ -51,20 +59,20 @@ function drawMarkers() {
     const beat = firstBeatOfNote[index];
     const beatBounds = beat && lookup?.findBeat(beat);
     if (!beatBounds) continue;
-    const bounds = beat.isRest ? beatBounds.visualBounds : (beatBounds.notes?.find((noteBounds) => noteBounds.note === beat.notes[0])?.noteHeadBounds ?? beatBounds.visualBounds);
-    const marker = document.createElement('div');
-    marker.className = 'note-marker';
-    Object.assign(marker.style, {
+    const bounds = noteBounds(beat, beatBounds);
+    const box = document.createElement('div');
+    box.className = 'selection-box';
+    Object.assign(box.style, {
       left: `${score.offsetLeft + bounds.x - 3}px`, top: `${score.offsetTop + bounds.y - 3}px`,
       width: `${bounds.w + 6}px`, height: `${bounds.h + 6}px`,
     });
-    markers.append(marker);
+    boxes.append(box);
   }
 }
 
 // ---- Note panel ----
 
-/** Replace the panel with one grey line (plus the key list while annotating). */
+/** Replace the panel with one grey line. */
 function showPanelHint(text) {
   const hint = document.createElement('p');
   hint.className = 'hint';
@@ -216,7 +224,7 @@ function drawnNoteMismatch(index, choice) {
   const beat = currentBeatMap().firstBeatOfNote[index];
   if (!beat || beat.isRest || choice.string === null) return null;
   const drawn = beat.notes[0];
-  const drawnString = beat.voice.bar.staff.tuning.length - drawn.string + 1;  // alphaTab counts from the lowest string
+  const drawnString = stringNumberOfNote(drawn);
   if (drawn.fret === choice.fret && drawnString === choice.string) return null;
   const warning = document.createElement('p');
   warning.className = 'warning';
@@ -230,8 +238,8 @@ function drawnNoteMismatch(index, choice) {
 function select(indices) {
   state.selection = [...new Set(indices)].sort((a, b) => a - b);
   updatePanel();
-  drawMarkers();
-  updateGuitar();
+  drawSelectionBoxes();
+  updateFretboard();
 }
 
 /** Click and drag on the tab: a press, moves, and a release, each on a beat. */
@@ -247,7 +255,7 @@ function setupSelecting() {
   });
 }
 
-/** A click or drag from beat `a` to beat `b`: fills the bar boxes and marks the beats on the fretboard (GP file), or selects notes (passage). */
+/** A click or drag from beat `a` to beat `b`: fills the bar boxes and marks the beats on the fretboard (song view), or selects notes (passage). */
 function finishDrag(a, b) {
   if (state.view?.kind === 'song') {
     const bars = [a, b].map((beat) => beat.voice.bar.index + 1).sort((x, y) => x - y);
@@ -255,7 +263,7 @@ function finishDrag(a, b) {
     element('last-bar').value = bars[1];
     statusLabel.textContent = `bars ${bars[0]}–${bars[1]} chosen`;
     state.draggedBeats = { first: a, last: b };
-    updateGuitar();
+    updateFretboard();
     return;
   }
   if (!shownPassage()) return;
@@ -269,11 +277,14 @@ function finishDrag(a, b) {
 /** Move the selection to the previous / next note with a pitch. */
 function stepSelection(step) {
   const notes = shownPassage().passage.notes;
-  let index = state.selection.length ? (step > 0 ? state.selection.at(-1) : state.selection[0]) : (step > 0 ? -1 : notes.length);
+  // Start from the selection's last note (going right) or first (going left); nothing selected = just off the passage's end
+  let index;
+  if (state.selection.length) index = step > 0 ? state.selection.at(-1) : state.selection[0];
+  else index = step > 0 ? -1 : notes.length;
   do { index += step; } while (index >= 0 && index < notes.length && notes[index].pitch === null);
   if (index < 0 || index >= notes.length) return;
   select([index]);
-  element('markers').firstChild?.scrollIntoView({ block: 'nearest' });
+  element('selection-boxes').firstChild?.scrollIntoView({ block: 'nearest' });
 }
 
 // ---- Editing the annotation ----
@@ -335,7 +346,7 @@ function applyEdit(change) {
       else skipped += 1;
     }
     if ('stroke' in change) choice.stroke = change.stroke;
-    if (['string', 'fret', 'finger', 'stroke'].some((field) => choice[field] !== choices[index][field])) {
+    if (choicesDiffer(choice, choices[index])) {
       choices[index] = choice;
       changed += 1;
     }

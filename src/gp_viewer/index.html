@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GRIP GP viewer</title>
-<!-- Styles: viewer.css · script: viewer.mjs (imports annotate.mjs, file_picker.mjs, guitar_neck.mjs, run_to_tex.mjs) -->
+<!-- Styles: viewer.css · script: viewer.mjs (imports annotate.mjs, file_picker.mjs, fretboard.mjs, track_mixer.mjs, choices_to_tex.mjs) -->
 <link rel="stylesheet" href="/viewer.css">
 </head>
 <body>
@@ -61,10 +61,10 @@
     <button id="edit-button" disabled>Edit</button>
     <button id="save-button" disabled>Save</button>
   </div>
-  <div id="viewport"><div id="score"></div><div id="markers"></div></div>
-  <!-- Fretboard panel, hidden until the Fretboard button opens it; guitar_neck.mjs draws #fretboard -->
+  <div id="viewport"><div id="score"></div><div id="selection-boxes"></div></div>
+  <!-- Fretboard panel (fretboard.mjs), hidden until the Fretboard button opens it -->
   <div id="fretboard-panel" hidden>
-    <div id="fretboard-settings" title="Events (a note, or a chord in the plain tab) shown faint around what is playing; 0 = off">
+    <div id="fretboard-settings" title="Events (a note, or a chord in the song view) shown faint around what is playing; 0 = off">
       <label>previous <input type="number" id="fretboard-previous" min="0" value="4"></label>
       <label>next <input type="number" id="fretboard-next" min="0" value="4"></label>
     </div>
@@ -76,8 +76,8 @@
   <div id="note-panel"></div>
   <section id="mixer-panel" hidden>
     <h2>Mixer</h2>
-    <p class="hint">Sound settings apply to the plain tab view.</p>
-    <div id="mixer"></div>
+    <p class="hint">Sound settings apply to the song view.</p>
+    <div id="mixer-rows"></div>
   </section>
 </aside>
 

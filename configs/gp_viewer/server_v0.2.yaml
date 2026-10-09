@@ -43,7 +43,7 @@ alphatab:
   # Playback soundfont, relative to alphatab_dist; ships with the npm package
   soundfont: soundfont/sonivox.sf2
 
-track_list:
+browse_list:
   # Rows per page of the song / track list (previous / next / jump to page browse the rest)
   page_size: 100
 

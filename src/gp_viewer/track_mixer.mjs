@@ -1,27 +1,25 @@
 // GRIP GP viewer, track mixer: the open song's tracks, each with mute, solo and a volume slider, and
-// its name to click to show that track. The sound settings apply in the plain tab view only;
+// its name to click to show that track. The sound settings apply in the song view only;
 // realisation and annotation views play their one passage track at full volume.
 // alphaTab keeps mute / solo / volume on the synthesizer's channels from one score to the next, so
 // applyMixer first puts back every channel it changed before, then sets what the shown view needs.
 // (Not alphaTab's resetChannelStates: that also wipes the transpositions it applies when loading a song.)
 // viewer.mjs calls setupTrackMixer once.
 
-// What viewer.mjs shares, set once by setupTrackMixer; the mixer's panel and the element its rows go in
-let api, state, showTrack, panel, rowsContainer;
+// What viewer.mjs shares, set once by setupTrackMixer
+let element, api, state, showTrack;
 
 const FULL_VOLUME = { mute: false, solo: false, volume: 1 };
 // Synthesizer channels the mixer has changed, to put back on the next applyMixer
 const changedChannels = new Set();
 
 /**
- * Take what viewer.mjs shares, the mixer's panel (hidden while no song is open) and the element the rows go in.
+ * Take what viewer.mjs shares.
  *
  * Returns { updateMixer, applyMixer } for viewer.mjs to call after each drawing.
  */
-export function setupTrackMixer(page, mixerPanel, mixerRows) {
-  ({ api, state, showTrack } = page);
-  panel = mixerPanel;
-  rowsContainer = mixerRows;
+export function setupTrackMixer(viewer) {
+  ({ element, api, state, showTrack } = viewer);
   return { updateMixer, applyMixer };
 }
 
@@ -34,8 +32,8 @@ function trackSetting(index) {
 
 /** One row per track of the open song, the shown track highlighted; the panel hides while no song is open. */
 function updateMixer() {
-  panel.hidden = !state.song;
-  rowsContainer.replaceChildren(...(state.song?.score.tracks ?? []).map(buildMixerRow));
+  element('mixer-panel').hidden = !state.song;
+  element('mixer-rows').replaceChildren(...(state.song?.score.tracks ?? []).map(buildMixerRow));
 }
 
 /** A track's row: its name (click shows it), M (mute) and S (solo) toggles, and a volume slider. */
@@ -77,7 +75,7 @@ function setChannel(player, channel, { mute, solo, volume }) {
   player.setChannelVolume(channel, volume);
 }
 
-/** Put the shown view's sound settings on the synthesizer: the song's mixer in the plain tab view, else full volume. */
+/** Put the shown view's sound settings on the synthesizer: the song's mixer in the song view, else full volume. */
 function applyMixer() {
   const player = api.player;
   if (!player) return;
