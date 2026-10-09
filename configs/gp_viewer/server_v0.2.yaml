@@ -44,8 +44,8 @@ alphatab:
   soundfont: soundfont/sonivox.sf2
 
 track_list:
-  # Most rows one search returns, so the page stays responsive
-  max_rows: 500
+  # Rows per page of the song / track list (previous / next / jump to page browse the rest)
+  page_size: 100
 
 gp_files:
   # Extensions the file endpoint will serve

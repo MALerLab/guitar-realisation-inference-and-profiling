@@ -13,6 +13,7 @@ Usage: uv run python -m src.gp_viewer.server [--config PATH]
 
 import argparse
 import json
+import math
 import mimetypes
 import traceback
 from functools import partial
@@ -99,22 +100,38 @@ def load_track_table(datasets: dict[str, dict[str, Any]]) -> pd.DataFrame:
     return table
 
 
-def search_tracks(table: pd.DataFrame, query: str, datasets: list[str], vocal_or_melody_only: bool,
-                  max_rows: int, file_name: str = "") -> dict[str, Any]:
-    """Filter the track table by dataset, words in `query` (all must match), the vocal/melody flag
-    and, if given, an exact file name.
+def load_song_table(track_table: pd.DataFrame) -> pd.DataFrame:
+    """One row per GP file in the track table: its dataset, paths and song columns, how many
+    guitar / bass tracks the manifest lists for it, and the track the page opens first.
+
+    The first track is the lowest-numbered guitar track, or track 0 if the manifest lists no guitar.
+
+    Args:
+        track_table: output of load_track_table.
+    """
+    guitar_tracks = track_table[track_table["guitar_or_bass"] == "guitar"]
+    first_guitar_track = guitar_tracks.groupby("gp_path")["track_index"].min()
+    songs = track_table.groupby("gp_path", sort=False).agg(
+        dataset=("dataset", "first"), path=("path", "first"), artist=("artist", "first"),
+        title_display=("title_display", "first"), parse_error=("parse_error", "first"),
+        track_count=("track_index", "size"),
+    ).reset_index()
+    songs["first_guitar_track"] = songs["gp_path"].map(first_guitar_track).fillna(0).astype(int)
+    return songs
+
+
+def filter_tracks(table: pd.DataFrame, query: str, datasets: list[str], vocal_or_melody_only: bool,
+                  file_name: str = "") -> pd.DataFrame:
+    """The track table's rows in the given datasets matching every word of `query`, the vocal/melody
+    flag and, if given, an exact file name.
 
     Args:
         table: output of load_track_table.
-        query: space-separated words, matched case-insensitively.
+        query: space-separated words, matched case-insensitively against artist, title, track name, path.
         datasets: dataset names to keep (the page's ticked boxes); empty keeps nothing.
         vocal_or_melody_only: keep only tracks whose name says vocal or melody.
-        max_rows: most rows returned; the total match count is reported separately.
         file_name: keep only files called exactly this, with or without extension, any letter case
             (the path box's lookup); empty keeps all.
-
-    Returns:
-        {"total": matching tracks, "file_count": distinct files among them, "rows": up to max_rows tracks}.
     """
     matches = table[table["dataset"].isin(datasets)]
     if vocal_or_melody_only:
@@ -124,10 +141,57 @@ def search_tracks(table: pd.DataFrame, query: str, datasets: list[str], vocal_or
     if file_name.strip():
         name = file_name.strip().lower()
         matches = matches[(matches["file_name"] == name) | (matches["file_stem"] == name)]
-    rows = matches.drop(columns=["search_text", "file_name", "file_stem"]).head(max_rows)
+    return matches
+
+
+def one_page(matches: pd.DataFrame, page: int, page_size: int, columns: list[str]) -> dict[str, Any]:
+    """One page of `matches` for the page's list, with the paging numbers.
+
+    Args:
+        matches: rows in list order.
+        page: page number from 1; clamped into range.
+        page_size: rows per page.
+        columns: columns sent for each row.
+
+    Returns:
+        {"total": all matching rows, "page": the page sent, "page_count": pages in all, "rows": its rows}.
+    """
+    page_count = max(1, math.ceil(len(matches) / page_size))
+    page = min(max(page, 1), page_count)
+    rows = matches[columns].iloc[(page - 1) * page_size: page * page_size]
     # Missing values (e.g. no parse_error) become JSON null
     rows = rows.astype(object).where(rows.notna(), None)
-    return {"total": len(matches), "file_count": matches["gp_path"].nunique(), "rows": rows.to_dict(orient="records")}
+    return {"total": len(matches), "page": page, "page_count": page_count, "rows": rows.to_dict(orient="records")}
+
+
+def search_tracks(table: pd.DataFrame, filters: dict[str, Any], page: int, page_size: int) -> dict[str, Any]:
+    """One page of matching tracks (see filter_tracks and one_page), plus how many distinct files match.
+
+    Args:
+        table: output of load_track_table.
+        filters: filter_tracks' keyword arguments.
+        page: page number from 1.
+        page_size: rows per page.
+    """
+    matches = filter_tracks(table, **filters)
+    columns = [column for column in matches.columns if column not in ("search_text", "file_name", "file_stem")]
+    return {**one_page(matches, page, page_size, columns), "file_count": matches["gp_path"].nunique()}
+
+
+def search_songs(track_table: pd.DataFrame, song_table: pd.DataFrame, filters: dict[str, Any], page: int,
+                 page_size: int) -> dict[str, Any]:
+    """One page of songs (GP files) with at least one track matching the filters (see filter_tracks).
+
+    Args:
+        track_table: output of load_track_table.
+        song_table: output of load_song_table.
+        filters: filter_tracks' keyword arguments.
+        page: page number from 1.
+        page_size: rows per page.
+    """
+    matching_files = filter_tracks(track_table, **filters)["gp_path"].unique()
+    songs = song_table[song_table["gp_path"].isin(matching_files)]
+    return one_page(songs, page, page_size, list(song_table.columns))
 
 
 def resolve_inside(root: Path, requested: str) -> Path | None:
@@ -216,12 +280,14 @@ def guess_content_type(path: Path) -> str:
 
 
 class ViewerHandler(BaseHTTPRequestHandler):
-    """GET routes: / (page), /<page script or style>, /alphatab/<file>, /api/config, /api/tracks, /api/file,
+    """GET routes: / (page), /<page script or style>, /alphatab/<file>, /api/config, /api/tracks, /api/songs, /api/file,
     /api/runs, /api/run, /api/positions. POST routes: see do_POST."""
 
-    def __init__(self, *args: Any, config: dict[str, Any], track_table: pd.DataFrame, **kwargs: Any):
+    def __init__(self, *args: Any, config: dict[str, Any], track_table: pd.DataFrame, song_table: pd.DataFrame,
+                 **kwargs: Any):
         self.config = config
         self.track_table = track_table
+        self.song_table = song_table
         self.dataset_roots = {name: dataset["root"] for name, dataset in config["datasets"].items()}
         super().__init__(*args, **kwargs)
 
@@ -238,6 +304,8 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self.send_page_config()
         elif url.path == "/api/tracks":
             self.send_track_search(params)
+        elif url.path == "/api/songs":
+            self.send_song_search(params)
         elif url.path == "/api/file":
             self.send_gp_file(params.get("path", ""), params.get("datasets", ""))
         elif url.path == "/api/runs":
@@ -279,17 +347,26 @@ class ViewerHandler(BaseHTTPRequestHandler):
             "reference_set_folder": str(self.config["paths"]["reference_set_folder"]),
         })
 
+    @staticmethod
+    def search_filters(params: dict[str, str]) -> dict[str, Any]:
+        """The page's search box, dataset boxes, vocal/melody box and path-box file name, as filter_tracks arguments."""
+        return {
+            "query": params.get("query", ""),
+            "datasets": params.get("datasets", "").split(","),
+            "vocal_or_melody_only": params.get("vocal_or_melody_only") == "1",
+            "file_name": params.get("file_name", ""),
+        }
+
     def send_track_search(self, params: dict[str, str]) -> None:
-        """Return manifest tracks matching the page's search box, dataset boxes and vocal/melody box (or the path box's file name)."""
-        result = search_tracks(
-            self.track_table,
-            query=params.get("query", ""),
-            datasets=params.get("datasets", "").split(","),
-            vocal_or_melody_only=params.get("vocal_or_melody_only") == "1",
-            max_rows=self.config["track_list"]["max_rows"],
-            file_name=params.get("file_name", ""),
-        )
-        self.send_json(result)
+        """Return one page of manifest tracks matching the page's filters (see search_tracks)."""
+        page_size = self.config["track_list"]["page_size"]
+        self.send_json(search_tracks(self.track_table, self.search_filters(params), int(params.get("page", 1)), page_size))
+
+    def send_song_search(self, params: dict[str, str]) -> None:
+        """Return one page of songs with a track matching the page's filters (see search_songs)."""
+        page_size = self.config["track_list"]["page_size"]
+        self.send_json(search_songs(self.track_table, self.song_table, self.search_filters(params),
+                                    int(params.get("page", 1)), page_size))
 
     def send_gp_file(self, requested: str, searched: str) -> None:
         """Send one GP file's bytes (see find_gp_file); its full path goes back in the X-GP-Path header.
@@ -445,11 +522,12 @@ def main() -> None:
     # Load config and the track table once; every request reuses them
     config = load_config(args.config)
     track_table = load_track_table(config["datasets"])
-    handler = partial(ViewerHandler, config=config, track_table=track_table)
+    song_table = load_song_table(track_table)
+    handler = partial(ViewerHandler, config=config, track_table=track_table, song_table=song_table)
 
     host, port = config["server"]["host"], config["server"]["port"]
     server = ThreadingHTTPServer((host, port), handler)
-    print(f"GP viewer: {len(track_table)} tracks loaded, serving http://{host}:{port} (Ctrl-C to stop)", flush=True)
+    print(f"GP viewer: {len(track_table)} tracks in {len(song_table)} songs loaded, serving http://{host}:{port} (Ctrl-C to stop)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

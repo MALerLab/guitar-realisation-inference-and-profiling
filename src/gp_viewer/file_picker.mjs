@@ -1,12 +1,16 @@
-// GRIP GP viewer, file picker: the path box, one box per dataset, and the searchable track list
-// (manifest rows from the server). viewer.mjs calls setupFilePicker once at start.
+// GRIP GP viewer, file picker: the path box, the songs / tracks switch, one box per dataset, and the
+// searchable list (manifest rows from the server, one page at a time). viewer.mjs calls setupFilePicker once at start.
 
 // What viewer.mjs shares, set once by setupFilePicker
 let element, pageConfig, openFile;
-// Dataset name → its label, for the track list rows
+// Dataset name → its label, for the list rows
 let datasetLabels;
+// What the list shows: { kind: 'songs' | 'tracks', filters, page, countText(result) }; paging re-asks with another page
+let listRequest = null;
+// The page controls above and below the list: { previous, next, pageBox, pageCount } each
+const pageNavs = [];
 
-/** Take what viewer.mjs shares, build the dataset boxes and show the first track list. */
+/** Take what viewer.mjs shares, wire the path box, switch, filters and page controls, and show the first page. */
 export function setupFilePicker(page) {
   ({ element, pageConfig, openFile } = page);
   datasetLabels = Object.fromEntries(pageConfig.datasets.map(({ name, label }) => [name, label]));
@@ -20,12 +24,34 @@ export function setupFilePicker(page) {
     else openByFileName(path);
   };
 
+  // Songs / tracks switch, remembered in this browser
+  try { setListMode(localStorage.getItem('gripListMode') ?? 'tracks'); } catch { /* storage blocked */ }
+  for (const radio of document.querySelectorAll('input[name=list-mode]')) {
+    radio.onchange = () => {
+      try { localStorage.setItem('gripListMode', listMode()); } catch { /* storage blocked: not remembered */ }
+      searchFromFirstPage();
+    };
+  }
+
   // Re-search shortly after typing stops, and on every toggle
   let searchTimer;
-  element('search-input').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(refreshTrackList, 250); };
-  element('vocal-only').onchange = refreshTrackList;
+  element('search-input').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(searchFromFirstPage, 250); };
+  element('vocal-only').onchange = searchFromFirstPage;
   buildDatasetBoxes();
-  refreshTrackList();
+  for (const id of ['page-nav-top', 'page-nav-bottom']) pageNavs.push(buildPageNav(element(id)));
+  searchFromFirstPage();
+}
+
+// ---- Filters ----
+
+/** 'songs' or 'tracks', from the switch. */
+function listMode() {
+  return document.querySelector('input[name=list-mode]:checked')?.value ?? 'tracks';
+}
+
+function setListMode(mode) {
+  const radio = document.querySelector(`input[name=list-mode][value=${mode}]`);
+  if (radio) radio.checked = true;
 }
 
 /** Names of the datasets whose boxes are ticked. */
@@ -37,7 +63,7 @@ function tickedDatasets() {
 function buildDatasetBoxes() {
   element('dataset-boxes').replaceChildren(...pageConfig.datasets.map(({ name, label }) => {
     const box = Object.assign(document.createElement('input'), { type: 'checkbox', value: name, checked: true });
-    box.onchange = refreshTrackList;
+    box.onchange = searchFromFirstPage;
     const boxLabel = document.createElement('label');
     boxLabel.append(box, ` ${label}`);
     const row = document.createElement('div');
@@ -46,14 +72,38 @@ function buildDatasetBoxes() {
   }));
 }
 
-/** One list row: song, track, dataset + path, and a warning if alphaTab is known to refuse the file. */
+/** List the songs or tracks matching the search box + boxes, from page 1. */
+function searchFromFirstPage() {
+  const kind = listMode();
+  showList({
+    kind, page: 1,
+    filters: { query: element('search-input').value, vocal_or_melody_only: element('vocal-only').checked ? '1' : '0' },
+    countText: (result) => `${result.total} ${kind}`,
+  });
+}
+
+// ---- The list and its pages ----
+
+/** One track row: song, track, dataset + path, and a warning if alphaTab is known to refuse the file. Click opens that track. */
 function buildTrackRow(row) {
-  const item = document.createElement('li');
-  const lines = [
+  return buildListRow(row, [
     ['song', `${row.artist ?? '?'} — ${row.title_display ?? '?'}`],
     ['track', `track ${row.track_index}: ${row.track_name} · ${row.guitar_or_bass}`],
-    ['file-path', `${datasetLabels[row.dataset] ?? row.dataset} · ${row.path}`],
-  ];
+  ], row.track_index);
+}
+
+/** One song row: song, how many guitar / bass tracks, dataset + path. Click opens its first guitar track. */
+function buildSongRow(row) {
+  return buildListRow(row, [
+    ['song', `${row.artist ?? '?'} — ${row.title_display ?? '?'}`],
+    ['track', `${row.track_count} guitar / bass track${row.track_count === 1 ? '' : 's'} · opens track ${row.first_guitar_track}`],
+  ], row.first_guitar_track);
+}
+
+/** A list row from its text lines, plus the dataset + path line and any unreadable warning; click opens `trackIndex`. */
+function buildListRow(row, lines, trackIndex) {
+  const item = document.createElement('li');
+  lines.push(['file-path', `${datasetLabels[row.dataset] ?? row.dataset} · ${row.path}`]);
   if (row.parse_error) lines.push(['unreadable', `alphaTab can't read this file: ${row.parse_error}`]);
   for (const [className, text] of lines) {
     const line = document.createElement('div');
@@ -62,43 +112,77 @@ function buildTrackRow(row) {
     item.append(line);
   }
   item.onclick = async () => {
-    if (!(await openFile(row.gp_path, row.track_index))) return;
-    document.querySelector('#track-list li.selected')?.classList.remove('selected');
+    if (!(await openFile(row.gp_path, trackIndex))) return;
+    document.querySelector('#browse-list li.selected')?.classList.remove('selected');
     item.classList.add('selected');
   };
   return item;
 }
 
-/** Ask the server for manifest tracks in the ticked datasets matching `filters` (see server.search_tracks). */
-async function fetchTracks(filters) {
-  const params = new URLSearchParams({ datasets: tickedDatasets().join(','), ...filters });
-  return (await fetch(`/api/tracks?${params}`)).json();
+/** Ask the server for one page of songs or tracks in the ticked datasets (see server.search_songs / search_tracks). */
+async function fetchList(kind, filters, page) {
+  const params = new URLSearchParams({ datasets: tickedDatasets().join(','), page, ...filters });
+  return (await fetch(`/api/${kind}?${params}`)).json();
 }
 
-/** Redraw the track list with a server answer, under a count line. */
-function showTrackList(result, countText) {
-  element('result-count').textContent = countText;
-  element('track-list').replaceChildren(...result.rows.map(buildTrackRow));
+/** Fetch and show one page of `request` (see listRequest); its count line and both page controls follow. */
+async function showList(request) {
+  listRequest = request;
+  const result = await fetchList(request.kind, request.filters, request.page);
+  if (listRequest !== request) return;  // a newer search started meanwhile
+  request.page = result.page;
+  element('result-count').textContent = request.countText(result);
+  element('browse-list').replaceChildren(...result.rows.map(request.kind === 'songs' ? buildSongRow : buildTrackRow));
+  element('browse-list').scrollTop = 0;
+  for (const nav of pageNavs) updatePageNav(nav, result);
 }
 
-/** Tracks matching the search box + boxes. */
-async function refreshTrackList() {
-  const result = await fetchTracks({ query: element('search-input').value, vocal_or_melody_only: element('vocal-only').checked ? '1' : '0' });
-  showTrackList(result, `${result.total} tracks` + (result.total > result.rows.length ? ` (showing ${result.rows.length})` : ''));
+/** Show another page of the current list. */
+function goToPage(page) {
+  if (listRequest) showList({ ...listRequest, page });
 }
+
+/** Fill `nav` with page controls: ◀, "page [n] of N", ▶; returns them for updatePageNav. */
+function buildPageNav(nav) {
+  const previous = Object.assign(document.createElement('button'), { textContent: '◀', title: 'Previous page' });
+  const next = Object.assign(document.createElement('button'), { textContent: '▶', title: 'Next page' });
+  const pageBox = Object.assign(document.createElement('input'), { type: 'number', min: 1, title: 'Go to page' });
+  const pageCount = document.createElement('span');
+  previous.onclick = () => goToPage(listRequest.page - 1);
+  next.onclick = () => goToPage(listRequest.page + 1);
+  pageBox.onchange = () => goToPage(Number(pageBox.value) || 1);
+  nav.replaceChildren(previous, 'page ', pageBox, pageCount, next);
+  return { previous, next, pageBox, pageCount };
+}
+
+/** Set one set of page controls to a server answer's page and page count. */
+function updatePageNav(nav, result) {
+  nav.pageBox.value = result.page;
+  nav.pageBox.max = result.page_count;
+  nav.pageCount.textContent = ` of ${result.page_count}`;
+  nav.previous.disabled = result.page <= 1;
+  nav.next.disabled = result.page >= result.page_count;
+}
+
+// ---- Path box: bare file names ----
 
 /**
  * The path box holds a bare file name (with or without extension): open the one file in the ticked
- * datasets called that, or list the tracks of several to click. No such file: try it as a path
- * (a file directly in a dataset folder), which reports the server's "no file" message if that fails too.
+ * datasets called that (on its first guitar track), or list the tracks of several to click. No such
+ * file: try it as a path (a file directly in a dataset folder), which reports the server's "no file"
+ * message if that fails too.
  */
 async function openByFileName(fileName) {
-  const result = await fetchTracks({ file_name: fileName });
+  const result = await fetchList('tracks', { file_name: fileName }, 1);
   if (result.file_count === 1) {
-    openFile(result.rows[0].gp_path, 0);
+    const guitarTracks = result.rows.filter((row) => row.guitar_or_bass === 'guitar').map((row) => row.track_index);
+    openFile(result.rows[0].gp_path, guitarTracks.length ? Math.min(...guitarTracks) : 0);
   } else if (result.file_count === 0) {
     openFile(fileName, 0, tickedDatasets());
   } else {
-    showTrackList(result, `${result.file_count} files named "${fileName}" (${result.total} tracks): click one`);
+    showList({
+      kind: 'tracks', page: 1, filters: { file_name: fileName },
+      countText: (answer) => `${answer.file_count} files named "${fileName}" (${answer.total} tracks): click one`,
+    });
   }
 }

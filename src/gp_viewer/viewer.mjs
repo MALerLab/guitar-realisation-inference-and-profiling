@@ -1,12 +1,14 @@
 // GRIP GP viewer, main script: alphaTab, the page state, drawing what is shown, the toolbar
 // (tracks, realisations, Run, Edit) and opening GP files and runs.
-// annotate.mjs (note panel, selecting, editing, Save) and file_picker.mjs (path box, track list)
-// get what they need from here through one `page` object when the page starts; guitar_neck.mjs
+// annotate.mjs (note panel, selecting, editing, Save), file_picker.mjs (path box, song / track list)
+// and track_mixer.mjs (the open song's tracks: mute, solo, volume) get what they need from here
+// through one `page` object when the page starts; guitar_neck.mjs
 // (tuning label, fretboard) only gets a tuning, a fret count and the spots to mark.
 import * as alphaTab from '/alphatab/alphaTab.mjs';
 import { annotationStrokeLetter, choicesToTex } from '/run_to_tex.mjs';
 import { setupAnnotate } from '/annotate.mjs';
 import { setupFilePicker } from '/file_picker.mjs';
+import { setupTrackMixer } from '/track_mixer.mjs';
 import { drawFretboard, tuningText } from '/guitar_neck.mjs';
 
 const element = (id) => document.getElementById(id);
@@ -200,9 +202,10 @@ function currentBeatMap() {
 
 const page = {
   element, statusLabel, api, state, pageConfig, postJson,
-  renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns, openFile, updateGuitar,
+  renderView, shownPassage, changedFromStart, currentBeatMap, updateDropdowns, openFile, updateGuitar, showTrack,
 };
 const annotate = setupAnnotate(page);
+const mixer = setupTrackMixer(page, element('mixer-panel'), element('mixer'));
 
 // ---- Drawing ----
 
@@ -229,6 +232,8 @@ function renderView(keepScroll = false) {
   updateDropdowns();
   updateButtons();
   annotate.updatePanel();
+  mixer.updateMixer();
+  mixer.applyMixer();
 }
 
 /** Colour the fret numbers of annotation notes that differ from the starting draft. */
@@ -342,15 +347,31 @@ function currentTimeline() {
   return timeline;
 }
 
+// Previous / next events fade with distance: the nearest at NEAREST_EVENT_OPACITY, the k-th at FURTHEST_EVENT_OPACITY
+const NEAREST_EVENT_OPACITY = 0.6;
+const FURTHEST_EVENT_OPACITY = 0.25;
+
+/** Opacity of the event `distance` steps (1 = nearest) from now, out of `count` shown. */
+function eventOpacity(distance, count) {
+  if (count <= 1) return NEAREST_EVENT_OPACITY;
+  return NEAREST_EVENT_OPACITY - ((NEAREST_EVENT_OPACITY - FURTHEST_EVENT_OPACITY) * (distance - 1)) / (count - 1);
+}
+
 /** A settings box's count of previous / next events (0 = off). */
 function fretboardEventCount(id) {
   return Math.max(0, Math.floor(Number(element(id).value) || 0));
 }
 
+/** Marks for `events` in order of distance from now (nearest first), fading out: [{ string, fret, kind, opacity }]. */
+function eventMarks(eventsNearestFirst, kind) {
+  return eventsNearestFirst.flatMap((event, index) => event.spots.map((spot) => (
+    { ...spot, kind, opacity: eventOpacity(index + 1, eventsNearestFirst.length) })));
+}
+
 /**
- * Marks for playback tick `tick`: solid = every note sounding; faint = the previous and next events
- * (counts from the settings boxes) around the latest event started. The latest event counts as
- * previous once it has stopped sounding.
+ * Marks for playback tick `tick`: current (red) = every note sounding; previous (orange) and next (green)
+ * = the events (counts from the settings boxes) around the latest event started, fading with distance.
+ * The latest event counts as previous once it has stopped sounding.
  */
 function playbackMarks(tick) {
   const line = currentTimeline();
@@ -359,14 +380,12 @@ function playbackMarks(tick) {
   let latest = -1;
   while (latest + 1 < line.events.length && line.events[latest + 1].start <= tick) latest += 1;
   const lastFinished = latest >= 0 && line.events[latest].end > tick ? latest - 1 : latest;
-  const previousCount = fretboardEventCount('fretboard-previous');
-  const nearby = [
-    ...line.events.slice(Math.max(lastFinished - previousCount + 1, 0), lastFinished + 1),
-    ...line.events.slice(latest + 1, latest + 1 + fretboardEventCount('fretboard-next')),
-  ];
+  const previous = line.events.slice(Math.max(lastFinished - fretboardEventCount('fretboard-previous') + 1, 0), lastFinished + 1);
+  const next = line.events.slice(latest + 1, latest + 1 + fretboardEventCount('fretboard-next'));
   return [
-    ...nearby.flatMap((event) => event.spots).map((spot) => ({ ...spot, faint: true })),
-    ...sounding.map((spot) => ({ ...spot, faint: false })),
+    ...eventMarks(previous.reverse(), 'previous'),
+    ...eventMarks(next, 'next'),
+    ...sounding.map((spot) => ({ ...spot, kind: 'current' })),
   ];
 }
 
@@ -388,11 +407,11 @@ function selectionMarks() {
   return beats.filter((beat) => beat.absoluteDisplayStart >= from && beat.absoluteDisplayStart <= to).flatMap(beatSpots);
 }
 
-/** While playing: playback marks. Otherwise the highlighted notes, or (nothing highlighted) the picture where playback stopped. */
+/** While playing: playback marks. Otherwise the highlighted notes (orange), or (nothing highlighted) the picture where playback stopped. */
 function fretboardMarks(tick) {
   if (api.playerState !== alphaTab.synth.PlayerState.Playing) {
     const selected = selectionMarks();
-    if (selected) return selected.map((spot) => ({ ...spot, faint: false }));
+    if (selected) return selected.map((spot) => ({ ...spot, kind: 'selected' }));
   }
   return playbackMarks(tick);
 }
@@ -479,7 +498,7 @@ async function showRun(name) {
   }
   if (state.song) state.song.trackIndex = run.source.track ?? state.song.trackIndex;
   statusLabel.textContent = '';
-  document.querySelector('#track-list li.selected')?.classList.remove('selected');
+  document.querySelector('#browse-list li.selected')?.classList.remove('selected');
   state.run = { name, run, positions };
   fillRunBar(settingsFromSource(run.source), run.source.k_best);
   state.view = { kind: 'realisation', rank: 1 };
@@ -506,12 +525,16 @@ refreshRunList();
 
 // ---- Toolbar: dropdowns, Run, Edit, sidebar ----
 
-trackSelect.onchange = () => {
-  trackSelect.blur();
-  if (trackSelect.value === '') return;
-  state.song.trackIndex = Number(trackSelect.value);
+/** Show one track of the open GP file (the track dropdown, or a click in the mixer). */
+function showTrack(trackIndex) {
+  state.song.trackIndex = trackIndex;
   state.view = { kind: 'song' };
   renderView();
+}
+
+trackSelect.onchange = () => {
+  trackSelect.blur();
+  if (trackSelect.value !== '') showTrack(Number(trackSelect.value));
 };
 
 realisationSelect.onchange = () => {

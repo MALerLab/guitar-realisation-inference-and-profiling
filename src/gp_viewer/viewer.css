@@ -8,10 +8,13 @@ body.sidebar-hidden #sidebar { display: none; }
 #sidebar #filter-boxes { flex-direction: column; align-items: flex-start; gap: 2px; }
 #filter-boxes .vocal-box { margin-top: 4px; }
 #result-count { padding: 4px 8px; color: #666; font-size: 12px; }
-#track-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
-#track-list li { padding: 6px 8px; border-bottom: 1px solid #eee; cursor: pointer; }
-#track-list li:hover { background: #eef4ff; }
-#track-list li.selected { background: #d6e6ff; }
+#browse-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+#browse-list li { padding: 6px 8px; border-bottom: 1px solid #eee; cursor: pointer; }
+#browse-list li:hover { background: #eef4ff; }
+#browse-list li.selected { background: #d6e6ff; }
+.page-nav { display: flex; gap: 4px; align-items: center; padding: 4px 8px; font-size: 12px; color: #555; }
+#page-nav-bottom { border-top: 1px solid #ddd; }
+.page-nav input { width: 56px; padding: 2px; }
 .song { font-weight: 600; }
 .track, .file-path { color: #555; font-size: 12px; }
 .file-path { color: #999; word-break: break-all; }
@@ -32,7 +35,8 @@ body.sidebar-hidden #sidebar { display: none; }
 .at-selection div { background: rgba(64, 64, 255, 0.1); }
 /* Boxes drawn around the selected notes */
 .note-marker { position: absolute; border: 2px solid #e05a00; border-radius: 3px; pointer-events: none; }
-#note-panel { width: 290px; overflow-y: auto; border-left: 1px solid #ccc; background: #fff; padding: 8px; }
+#right-column { width: 290px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fff; }
+#note-panel { flex: 1; overflow-y: auto; padding: 8px; }
 #note-panel h2 { font-size: 15px; margin: 0 0 8px; }
 #note-panel h3 { font-size: 13px; margin: 12px 0 4px; color: #555; }
 #note-panel .hint { color: #888; }
@@ -46,6 +50,17 @@ body.sidebar-hidden #sidebar { display: none; }
 #note-panel .buttons { display: flex; flex-wrap: wrap; gap: 4px; }
 #note-panel .buttons button { padding: 3px 7px; }
 #note-panel .keys { margin-top: 16px; color: #777; font-size: 12px; line-height: 1.6; }
+/* Mixer (track_mixer.mjs): one row per track of the open song */
+#mixer-panel { border-top: 1px solid #ccc; padding: 8px; max-height: 40%; overflow-y: auto; }
+#mixer-panel[hidden] { display: none; }
+#mixer-panel h2 { font-size: 15px; margin: 0 0 2px; }
+#mixer-panel .hint { color: #888; font-size: 12px; margin: 0 0 6px; }
+.mixer-row { display: flex; gap: 3px; align-items: center; padding: 2px 0; }
+.mixer-row.shown .mixer-track-name { background: #d6e6ff; }
+.mixer-track-name { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mixer-row button { padding: 2px 6px; }
+.mixer-row button.on { background: #ffe3cc; font-weight: 600; }
+.mixer-row input[type=range] { width: 70px; }
 #save-dialog { width: 460px; }
 #save-dialog label { display: block; margin: 8px 0 2px; color: #555; }
 #save-dialog input { width: 100%; padding: 5px; }
@@ -70,7 +85,10 @@ body.sidebar-hidden #sidebar { display: none; }
 .fretboard-string { stroke: #555; }
 .fretboard-string-name { font: 12px ui-monospace, monospace; fill: #333; text-anchor: end; }
 .fretboard-fret-number { font: 10px system-ui, sans-serif; fill: #888; text-anchor: middle; }
-/* Marks: what sounds now or is highlighted (same orange as the selection boxes); faint = previous / next events */
-.fretboard-mark { fill: #e05a00; }
-.fretboard-open-mark { fill: none; stroke: #e05a00; stroke-width: 2.5; }
-.fretboard-mark-faint { fill-opacity: 0.35; stroke-opacity: 0.35; }
+/* Marks (fill = dot in a fret, stroke = ring around an open string's name): red = sounding now,
+   orange = previous events and highlighted notes (the selection boxes' orange), green = next events */
+.fretboard-mark-current { fill: #d62828; stroke: #d62828; }
+.fretboard-mark-previous, .fretboard-mark-selected { fill: #e05a00; stroke: #e05a00; }
+.fretboard-mark-next { fill: #2a9d3a; stroke: #2a9d3a; }
+/* After the colours, so a ring stays unfilled */
+.fretboard-open-mark { fill: none; stroke-width: 2.5; }

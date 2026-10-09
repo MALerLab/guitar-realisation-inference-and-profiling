@@ -2,7 +2,7 @@
 // Knows nothing about the rest of the page: callers pass in a tuning, a fret count and the spots
 // to mark; later features add their own inputs to drawFretboard's options.
 // A tuning is open-string MIDI pitches, string 1 (highest) first, as alphaTab, run files and manifests store it.
-// Colours and line widths live in viewer.css (the fretboard-* classes).
+// Colours and line widths live in viewer.css (the fretboard-* classes, one fretboard-mark-<kind> per mark kind).
 
 const NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 // Frets with one inlay dot, and with two
@@ -47,8 +47,9 @@ function svgElement(tag, attributes, text = null) {
  *   container: The element to draw into.
  *   options.tuning: Open-string MIDI pitches, string 1 first; one line is drawn per string.
  *   options.highestFret: How many frets the neck has.
- *   options.marks: Spots to mark, [{ string, fret, faint }] (string 1 = highest, fret 0 = open string).
- *     Faint marks are drawn first, so a solid mark on the same spot shows on top; spots off the neck are skipped.
+ *   options.marks: Spots to mark, [{ string, fret, kind, opacity }] (string 1 = highest, fret 0 = open
+ *     string; kind picks the colour class fretboard-mark-<kind>; opacity 0–1, 1 if left out). Fainter marks
+ *     are drawn first, so a stronger mark on the same spot shows on top; spots off the neck are skipped.
  */
 export function drawFretboard(container, { tuning, highestFret, marks = [] }) {
   const stringCount = tuning.length;
@@ -92,15 +93,15 @@ export function drawFretboard(container, { tuning, highestFret, marks = [] }) {
     svg.append(svgElement('text', { class: 'fretboard-string-name', x: nutX - 8, y: y + 4 }, noteName(pitch)));
   });
 
-  // Marks: faint first, solid on top
-  const marksInDrawingOrder = [...marks.filter((mark) => mark.faint), ...marks.filter((mark) => !mark.faint)];
-  for (const { string, fret, faint } of marksInDrawingOrder) {
+  // Marks: faintest first, strongest on top
+  const marksInDrawingOrder = [...marks].sort((a, b) => (a.opacity ?? 1) - (b.opacity ?? 1));
+  for (const { string, fret, kind, opacity = 1 } of marksInDrawingOrder) {
     if (string < 1 || string > stringCount || fret < 0 || fret > highestFret) continue;
     const y = topY + (string - 1) * STRING_GAP;
-    const faintClass = faint ? ' fretboard-mark-faint' : '';
+    const colourClass = `fretboard-mark-${kind}`;
     svg.append(fret === 0
-      ? svgElement('circle', { class: `fretboard-open-mark${faintClass}`, cx: OPEN_MARK_X, cy: y, r: OPEN_MARK_RADIUS })
-      : svgElement('circle', { class: `fretboard-mark${faintClass}`, cx: fretCentreX(fret), cy: y, r: MARK_RADIUS }));
+      ? svgElement('circle', { class: `fretboard-open-mark ${colourClass}`, cx: OPEN_MARK_X, cy: y, r: OPEN_MARK_RADIUS, 'stroke-opacity': opacity })
+      : svgElement('circle', { class: `fretboard-mark ${colourClass}`, cx: fretCentreX(fret), cy: y, r: MARK_RADIUS, 'fill-opacity': opacity }));
   }
   container.replaceChildren(svg);
 }

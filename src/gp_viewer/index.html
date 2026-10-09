@@ -9,6 +9,12 @@
 </head>
 <body>
 <aside id="sidebar">
+  <!-- What the list shows: one row per song (opens its first guitar track) or per track -->
+  <div class="controls" id="list-mode">
+    List
+    <label><input type="radio" name="list-mode" value="songs"> songs</label>
+    <label><input type="radio" name="list-mode" value="tracks" checked> tracks</label>
+  </div>
   <div class="controls">
     <select id="run-select"><option value="">Optimiser runs…</option></select>
     <button id="runs-refresh" title="Reload the run list">Reload</button>
@@ -26,7 +32,10 @@
     <label class="vocal-box"><input type="checkbox" id="vocal-only"> vocal/melody tracks only</label>
   </div>
   <div id="result-count"></div>
-  <ul id="track-list"></ul>
+  <!-- Page controls (file_picker.mjs) above and below the list -->
+  <div class="page-nav" id="page-nav-top"></div>
+  <ul id="browse-list"></ul>
+  <div class="page-nav" id="page-nav-bottom"></div>
 </aside>
 <main id="main">
   <div id="toolbar">
@@ -62,7 +71,15 @@
     <div id="fretboard"></div>
   </div>
 </main>
-<aside id="note-panel"></aside>
+<!-- Right-hand column: the note panel (annotate.mjs), and the open song's mixer (track_mixer.mjs) at the bottom -->
+<aside id="right-column">
+  <div id="note-panel"></div>
+  <section id="mixer-panel" hidden>
+    <h2>Mixer</h2>
+    <p class="hint">Sound settings apply to the plain tab view.</p>
+    <div id="mixer"></div>
+  </section>
+</aside>
 
 <dialog id="save-dialog">
   <form method="dialog" id="save-form">
