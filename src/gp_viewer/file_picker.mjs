@@ -10,7 +10,11 @@ let listRequest = null;
 // The page controls above and below the list: { previous, next, pageBox, pageCount } each
 const pageNavs = [];
 
-/** Take what viewer.mjs shares, wire the path box, switch, filters and page controls, and show the first page. */
+/**
+ * Take what viewer.mjs shares, wire the path box, switch, filters and page controls, and show the first page.
+ *
+ * Returns { clearListSelection } for viewer.mjs to call when something else is opened.
+ */
 export function setupFilePicker(page) {
   ({ element, pageConfig, openFile } = page);
   datasetLabels = Object.fromEntries(pageConfig.datasets.map(({ name, label }) => [name, label]));
@@ -40,6 +44,12 @@ export function setupFilePicker(page) {
   buildDatasetBoxes();
   for (const id of ['page-nav-top', 'page-nav-bottom']) pageNavs.push(buildPageNav(element(id)));
   searchFromFirstPage();
+  return { clearListSelection };
+}
+
+/** Un-highlight the list row last opened (another file or a run was opened some other way). */
+function clearListSelection() {
+  element('browse-list').querySelector('li.selected')?.classList.remove('selected');
 }
 
 // ---- Filters ----
@@ -112,9 +122,7 @@ function buildListRow(row, lines, trackIndex) {
     item.append(line);
   }
   item.onclick = async () => {
-    if (!(await openFile(row.gp_path, trackIndex))) return;
-    document.querySelector('#browse-list li.selected')?.classList.remove('selected');
-    item.classList.add('selected');
+    if (await openFile(row.gp_path, trackIndex)) item.classList.add('selected');
   };
   return item;
 }

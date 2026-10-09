@@ -206,6 +206,7 @@ const page = {
 };
 const annotate = setupAnnotate(page);
 const mixer = setupTrackMixer(page, element('mixer-panel'), element('mixer'));
+const filePicker = setupFilePicker(page);
 
 // ---- Drawing ----
 
@@ -471,13 +472,21 @@ async function openFile(path, trackIndex = 0, searched = []) {
   api.stop();
   if (!(await loadSong(path, trackIndex, searched))) return false;
   Object.assign(state, { run: null, annotation: null, view: { kind: 'song' }, selection: [], draggedBeats: null });
+  filePicker.clearListSelection();
   fillRunBar(null);
   renderView();
   return true;
 }
 
-/** Fetch a run and its positions, open its GP file if needed, and show realisation #1. */
-async function showRun(name) {
+/**
+ * Fetch a run and its positions, open its GP file if needed, and show realisation #1. The page state
+ * (annotation, selection) changes only once everything has loaded, so a failed load leaves the page as it was.
+ *
+ * Args:
+ *   name: The run file's name.
+ *   keepAnnotation: Keep the open annotation (a run on the same passage as it).
+ */
+async function showRun(name, keepAnnotation = false) {
   statusLabel.textContent = 'loading…';
   const response = await fetch(`/api/run?name=${encodeURIComponent(name)}`);
   if (!response.ok) {
@@ -498,7 +507,9 @@ async function showRun(name) {
   }
   if (state.song) state.song.trackIndex = run.source.track ?? state.song.trackIndex;
   statusLabel.textContent = '';
-  document.querySelector('#browse-list li.selected')?.classList.remove('selected');
+  filePicker.clearListSelection();
+  if (!keepAnnotation) state.annotation = null;
+  state.selection = [];
   state.run = { name, run, positions };
   fillRunBar(settingsFromSource(run.source), run.source.k_best);
   state.view = { kind: 'realisation', rank: 1 };
@@ -516,8 +527,6 @@ element('run-select').onchange = async (event) => {
   event.target.value = '';
   if (!name || !confirmDiscardAnnotation('Open another run')) return;
   api.stop();
-  state.annotation = null;
-  state.selection = [];
   await showRun(name);
 };
 element('runs-refresh').onclick = refreshRunList;
@@ -563,10 +572,9 @@ async function runOptimiser() {
     statusLabel.textContent = `Run failed: ${reply.error}`;
     return;
   }
-  if (!keepAnnotation) state.annotation = null;
   api.stop();
   await refreshRunList();
-  await showRun(reply.name);
+  await showRun(reply.name, keepAnnotation);
 }
 element('run-button').onclick = runOptimiser;
 
@@ -648,7 +656,6 @@ for (const id of ['fretboard-previous', 'fretboard-next']) {
 api.playerStateChanged.on(() => updateGuitar());
 api.playerPositionChanged.on((event) => updateGuitar(event.currentTick));
 
-// ---- Start: file picker, empty note panel ----
+// ---- Start: empty note panel ----
 
-setupFilePicker(page);
 annotate.updatePanel();

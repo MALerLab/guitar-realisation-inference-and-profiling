@@ -377,6 +377,8 @@ let saveCheckTimer;
 let saveOverwrite = false;
 // The name "New version" fills in, from the last check
 let saveNewVersionName = null;
+// Counts save checks, so a slow, older answer can't overwrite a newer one
+let saveCheckNumber = 0;
 
 /** The request that saves (or, with dryRun, only checks) the annotation as its own file; an empty name asks for the suggested one. */
 function saveRequest(dryRun) {
@@ -388,11 +390,13 @@ function saveRequest(dryRun) {
 
 /** Ask the server what Save would do with this file name, and show it (plus the overwrite / new version choice if taken). */
 async function checkSave() {
+  const checkNumber = ++saveCheckNumber;
   element('save-summary').textContent = 'checking…';
   element('save-error').textContent = '';
   element('save-choice').hidden = true;
   element('save-confirm').disabled = true;
   const reply = await postJson('/api/reference', saveRequest(true));
+  if (checkNumber !== saveCheckNumber) return;  // a newer check started meanwhile
   if (reply.error) {
     element('save-summary').textContent = '';
     element('save-error').textContent = reply.error;
